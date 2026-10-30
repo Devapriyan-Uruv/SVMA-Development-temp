@@ -1,0 +1,4 @@
+
+> svma-ai-intelligence-platform@2.8.1 typecheck
+> tsc --noEmit
+

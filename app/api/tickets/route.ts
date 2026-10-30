@@ -1,0 +1,24 @@
+import {moduleAuthorization,SOLVENT_MANAGEMENT_ROLES,QUALITY_MANAGEMENT_ROLES} from '@/lib/authorize';
+import {NextRequest,NextResponse} from 'next/server';
+import {supabaseAdmin} from '@/lib/supabase/admin';
+import {errorMessage,logServerError} from '@/lib/errors';
+import {loadRouting,peopleFor,rolesFor} from '@/lib/ticketRouting';
+const allowedStatuses=new Set(['open','acknowledged','in_progress','waiting','resolved','closed','overdue']);
+function auth(scope:string){return scope==='quality'?moduleAuthorization('quality_management',QUALITY_MANAGEMENT_ROLES):moduleAuthorization('solvent_management',SOLVENT_MANAGEMENT_ROLES)}
+export async function GET(req:NextRequest){try{
+ const scope=req.nextUrl.searchParams.get('scope')==='quality'?'quality':'solvent',az=await auth(scope);if(!az.ok)return NextResponse.json({error:'Management access not assigned'},{status:az.status});
+ const db=supabaseAdmin(),modules=scope==='quality'?['quality']:['solvent','boiler'];
+ const countQuery=()=>db.from('deviation_tickets').select('id,deviations!inner(parameter_master!inner(parameter_sections!inner(module)))',{count:'exact',head:true}).in('deviations.parameter_master.parameter_sections.module',modules);
+ const [total,closed]=await Promise.all([countQuery(),countQuery().in('status',['closed','resolved'])]);if(total.error||closed.error)throw total.error||closed.error;
+ const counts={total:total.count||0,closed:closed.count||0,open:(total.count||0)-(closed.count||0)};
+ if(req.nextUrl.searchParams.get('summary')==='1')return NextResponse.json({counts});
+ // The recurrence columns (occurrence_count / last_observed_at) come from sql/062. Until that migration is applied the list must still load,
+ // so the query is retried without them rather than failing the whole page.
+ const list=(withRecurrence:boolean)=>db.from('deviation_tickets').select(`*,ticket_evidence(*),deviations!inner(severity,target_text,actual_text,created_at,${withRecurrence?'occurrence_count,last_observed_at,':''}observed_facts,parameter_master!inner(name,source_serial,source_group,parameter_sections!inner(name,module)))`).in('deviations.parameter_master.parameter_sections.module',modules).order('created_at',{ascending:false}).limit(500);
+ let {data,error}=await list(true);
+ if(error&&/occurrence_count|last_observed_at/.test(error.message||''))({data,error}=await list(false));
+ if(error)throw error;
+ return NextResponse.json({tickets:data||[],counts});
+ }catch(e){logServerError('tickets:list',e);return NextResponse.json({error:errorMessage(e,'Unable to load tickets. Please try again.')},{status:500})}}
+export async function PATCH(req:NextRequest){try{const b=await req.json(),scope=b.scope==='quality'?'quality':'solvent',az=await auth(scope);if(!az.ok)return NextResponse.json({error:az.status===401?'Not authenticated':'Management access not assigned'},{status:az.status});const user=az.user!;if(!b.id||!allowedStatuses.has(String(b.status)))return NextResponse.json({error:'Ticket and valid status are required.'},{status:400});const db=supabaseAdmin(),update:any={status:b.status,root_cause:b.rootCause||null,corrective_action:b.correctiveAction||null,closure_comments:b.closureComments||null};if(['closed','resolved'].includes(b.status)){update.closed_by=user.id;update.closed_at=new Date().toISOString()}else{update.closed_by=null;update.closed_at=null}const found=await db.from('deviation_tickets').select('*,deviations(parameter_master(section_id,parameter_sections(module)))').eq('id',b.id).maybeSingle();const before=found.data;if(found.error)throw found.error;const ticketModule=before?.deviations?.parameter_master?.parameter_sections?.module;if(!(scope==='quality'?['quality']:['solvent','boiler']).includes(ticketModule))return NextResponse.json({error:'Ticket is not in this workspace.'},{status:403});if(['closed','resolved'].includes(b.status)&&!az.roles.includes('super_admin')){const routing=await loadRouting(db),sid=(before as any)?.deviations?.parameter_master?.section_id,areaId=routing.sectionArea.get(sid),closers=peopleFor(routing,areaId,'closer');if(areaId&&closers.length&&!rolesFor(routing,user.id,areaId).has('closer'))return NextResponse.json({error:`Only ${closers.map(c=>c.name).join(' / ')} can close tickets for ${routing.areas.get(areaId)?.area}. Open the Tickets module to follow them.`},{status:403})}
+const {data,error}=await db.from('deviation_tickets').update(update).eq('id',b.id).select('*').single();if(error)throw error;await db.from('audit_logs').insert({user_id:user.id,module:scope==='quality'?'quality_management':'solvent_management',action:'UPDATE_ACTION_TICKET',entity_type:'deviation_ticket',entity_id:String(b.id),before_data:before,after_data:data});return NextResponse.json({ticket:data})}catch(e){logServerError('tickets',e);return NextResponse.json({error:errorMessage(e,'Unable to update ticket')},{status:500})}}

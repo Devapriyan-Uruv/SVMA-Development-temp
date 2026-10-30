@@ -1,0 +1,9 @@
+Existing files changed from V8.1:
+README.md
+package-lock.json
+package.json
+app/api/reconcile/amount/route.ts
+app/api/reconcile/export-amount/route.ts
+app/finance/amount/page.tsx
+
+Added: lib/paymentReconciliationV82.ts, lib/paymentComments.ts, scripts/test-payments.mjs, scripts/test-payment-api.mjs, V8.2 validation/docs and Credit/Debit sample.

@@ -1,0 +1,5 @@
+-- SVMA V6 execution helper.
+-- IMPORTANT: Supabase SQL editor does not execute \i includes. Run these files in order:
+-- 1. sql/013_v5_industrial_glass_finance_quality.sql   (if V5 not already applied)
+-- 2. sql/014_v6_exact_qc_pdf_master.sql                (required V6 QC correction)
+-- Existing databases already on V5 only need step 2.

@@ -1,0 +1,7 @@
+215 original files verified byte-identical to V8.2.
+98 additions validated.
+No Lab analysis rows.
+No blank targets in additions.
+No duplicate source identities.
+SQL content changes are INSERT-only and repeat-safe.
+No live database migration performed.

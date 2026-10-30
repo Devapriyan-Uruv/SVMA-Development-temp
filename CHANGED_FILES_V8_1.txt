@@ -1,0 +1,25 @@
+UPDATED README.md
+ADDED START_HERE_V8_1.md
+ADDED VALIDATION_API_V8_1.txt
+ADDED VALIDATION_BUILD_V8_1.txt
+ADDED VALIDATION_ENGINE_V8_1.txt
+ADDED VALIDATION_TYPECHECK_V8_1.txt
+ADDED VALIDATION_V8_1.md
+UPDATED app/api/reconcile/export-transaction/route.ts
+UPDATED app/api/reconcile/transaction/route.ts
+UPDATED app/finance/page.tsx
+UPDATED app/finance/transaction/page.tsx
+ADDED lib/transactionExport.ts
+ADDED lib/transactionPresence.ts
+UPDATED package-lock.json
+UPDATED package.json
+ADDED reference-samples/validation-10-Sep-2026/Daybook 10.09.26.xlsx
+ADDED reference-samples/validation-10-Sep-2026/Gate In EntrySVMAAdmin20260911110306AM.xlsx
+ADDED reference-samples/validation-10-Sep-2026/Gate Out EntrySVMAAdmin20260911110248AM.xlsx
+ADDED reference-samples/validation-10-Sep-2026/SVMA-CR-10.09.2026.xlsx
+ADDED reference-samples/validation-10-Sep-2026/WeighmentRegister.Xls
+ADDED reference-samples/validation-10-Sep-2026/reviewed-presence.json
+ADDED scripts/test-reconciliation-api.mjs
+ADDED scripts/test-reconciliation.mjs
+
+Byte-for-byte preserved protected V7 files: 61

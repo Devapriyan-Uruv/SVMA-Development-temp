@@ -1,0 +1,703 @@
+[
+  {
+    "ref": "0141938",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "DORB/00775/26-27",
+      "DORB/00776/26-27",
+      "DORB/00778/26-27",
+      "DORB/00779/26-27",
+      "DORB/00783/26-27",
+      "DORB/00784/26-27",
+      "01843",
+      "01844"
+    ]
+  },
+  {
+    "ref": "0141943",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "OIL/00597/26-27",
+      "OIL-SO/00521/26-27"
+    ]
+  },
+  {
+    "ref": "0141944",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "OIL/00598/26-27",
+      "OIL-SO/00520/26-27"
+    ]
+  },
+  {
+    "ref": "0141947",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "DORB/00774/26-27",
+      "DORB/00781/26-27",
+      "DORB/00785/26-27"
+    ]
+  },
+  {
+    "ref": "0141948",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1481/26-27",
+      "RB-RN/1482/26-27",
+      "RB-RN/1483/26-27",
+      "06733",
+      "OIL-SO/00519/26-27"
+    ]
+  },
+  {
+    "ref": "0141949",
+    "category": "Purchase",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141950",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1481/26-27",
+      "RB-RN/1482/26-27",
+      "RB-RN/1483/26-27",
+      "06733",
+      "OIL-SO/00519/26-27"
+    ]
+  },
+  {
+    "ref": "0141951",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1072/26-27"
+    ]
+  },
+  {
+    "ref": "0141952",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141953",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "OIL/00599/26-27",
+      "OIL-SO/00522/26-27"
+    ]
+  },
+  {
+    "ref": "0141954",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1067/26-27"
+    ]
+  },
+  {
+    "ref": "0141955",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141956",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1489/26-27",
+      "RB-RN/1490/26-27",
+      "06731",
+      "RB-PO/1066/26-27"
+    ]
+  },
+  {
+    "ref": "0141957",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1481/26-27",
+      "RB-RN/1482/26-27",
+      "RB-RN/1483/26-27",
+      "06733",
+      "OIL-SO/00519/26-27"
+    ]
+  },
+  {
+    "ref": "0141958",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141959",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141960",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "54"
+    ]
+  },
+  {
+    "ref": "0141961",
+    "category": "Sales",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141962",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141963",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1073/26-27"
+    ]
+  },
+  {
+    "ref": "0141964",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SBARI/495/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0141965",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "06729",
+      "RB-PO/1071/26-27"
+    ]
+  },
+  {
+    "ref": "0141966",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1496/26-27"
+    ]
+  },
+  {
+    "ref": "0141967",
+    "category": "Others",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "06770",
+      "RN/1790/26-27"
+    ]
+  },
+  {
+    "ref": "0141968",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0141969",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0141970",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141971",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141972",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "01842"
+    ]
+  },
+  {
+    "ref": "0141973",
+    "category": "Others",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0141974",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1069/26-27"
+    ]
+  },
+  {
+    "ref": "0141975",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1069/26-27"
+    ]
+  },
+  {
+    "ref": "0141976",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141977",
+    "category": "Sales",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141978",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1496/26-27"
+    ]
+  },
+  {
+    "ref": "0141979",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1498/26-27",
+      "RB-PO/1065/26-27"
+    ]
+  },
+  {
+    "ref": "0141980",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141981",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141982",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1069/26-27"
+    ]
+  },
+  {
+    "ref": "0141983",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "DORB/00775/26-27",
+      "DORB/00776/26-27",
+      "DORB/00778/26-27",
+      "DORB/00779/26-27",
+      "DORB/00783/26-27",
+      "DORB/00784/26-27",
+      "01843",
+      "01844"
+    ]
+  },
+  {
+    "ref": "0141984",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0141985",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0141986",
+    "category": "Sales",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141987",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141988",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1069/26-27"
+    ]
+  },
+  {
+    "ref": "0141989",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1479/26-27",
+      "RB-PO/1070/26-27"
+    ]
+  },
+  {
+    "ref": "0141990",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1069/26-27"
+    ]
+  },
+  {
+    "ref": "0141991",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1488/26-27",
+      "RB-RN/1491/26-27",
+      "RB-RN/1493/26-27"
+    ]
+  },
+  {
+    "ref": "0141992",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "01841"
+    ]
+  },
+  {
+    "ref": "0141993",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141994",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0141995",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1498/26-27",
+      "RB-PO/1065/26-27"
+    ]
+  },
+  {
+    "ref": "0141996",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "DORB/00775/26-27",
+      "DORB/00776/26-27",
+      "DORB/00778/26-27",
+      "DORB/00779/26-27",
+      "DORB/00783/26-27",
+      "DORB/00784/26-27",
+      "01843",
+      "01844"
+    ]
+  },
+  {
+    "ref": "0141997",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1479/26-27",
+      "RB-PO/1070/26-27"
+    ]
+  },
+  {
+    "ref": "0141998",
+    "category": "Others",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "06772",
+      "RN/1792/26-27"
+    ]
+  },
+  {
+    "ref": "0141999",
+    "category": "Others",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RN/1787/26-27"
+    ]
+  },
+  {
+    "ref": "0142000",
+    "category": "Others",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0142001",
+    "category": "Others",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "CO-RN/257/26-27",
+      "DOC/00308/26-27",
+      "DOC/00310/26-27",
+      "DOC/00311/26-27",
+      "SB/528/26-27",
+      "SB/529/26-27",
+      "SB/530/26-27",
+      "SB/531/26-27",
+      "SB/532/26-27",
+      "SB/533/26-27",
+      "SB/534/26-27",
+      "SB/535/26-27"
+    ]
+  },
+  {
+    "ref": "0142002",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142003",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142004",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142005",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142006",
+    "category": "Sales",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142007",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "DORB/00775/26-27",
+      "DORB/00776/26-27",
+      "DORB/00778/26-27",
+      "DORB/00779/26-27",
+      "DORB/00783/26-27",
+      "DORB/00784/26-27",
+      "01843",
+      "01844"
+    ]
+  },
+  {
+    "ref": "0142008",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-RN/1489/26-27",
+      "RB-RN/1490/26-27",
+      "06731",
+      "RB-PO/1066/26-27"
+    ]
+  },
+  {
+    "ref": "0142009",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142010",
+    "category": "Others",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "06764",
+      "06771",
+      "RN/1783/26-27",
+      "RN/1791/26-27"
+    ]
+  },
+  {
+    "ref": "0142011",
+    "category": "Sales",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "DORB/00775/26-27",
+      "DORB/00776/26-27",
+      "DORB/00778/26-27",
+      "DORB/00779/26-27",
+      "DORB/00783/26-27",
+      "DORB/00784/26-27",
+      "01843",
+      "01844"
+    ]
+  },
+  {
+    "ref": "0142012",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142013",
+    "category": "Purchase",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142014",
+    "category": "Purchase",
+    "status": "Matching with Tally",
+    "vouchers": [
+      "RB-PO/1068/26-27"
+    ]
+  },
+  {
+    "ref": "0142015",
+    "category": "Sales",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142016",
+    "category": "Sales",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142017",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  },
+  {
+    "ref": "0142018",
+    "category": "Others",
+    "status": "Not found in uploaded Tally",
+    "vouchers": []
+  }
+]

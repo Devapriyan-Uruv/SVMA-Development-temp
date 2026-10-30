@@ -1,0 +1,21 @@
+PASS  Lab Analysing Report removed from Solvent
+PASS  Ground-floor authorised entry control present
+PASS  Ground-floor gate position present
+PASS  Cooling pump targets are 65 / 55
+PASS  Second-floor 8.5 AMS corrected
+PASS  Recuperation range keeps +4 sign
+PASS  Four vacuum rows present
+PASS  Vacuum pump is 20 AMS
+PASS  Pelletizer uses 80 AMS
+PASS  Palvarizer spelling preserved
+PASS  Vesion Boiler spelling preserved
+PASS  Strict greater/less parser implemented
+PASS  Every Solvent deviation creates a ticket
+PASS  Deviation notification remains deterministic
+PASS  Downloaded report has Ticket ID
+PASS  Downloaded report has AI Comments
+PASS  Downloaded report has probable-cause hypothesis column
+PASS  AI prompt cannot change deterministic status
+PASS  No AI key still exports deterministic report
+
+19/19 V7 controls passed

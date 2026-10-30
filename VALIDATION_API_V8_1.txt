@@ -1,0 +1,13 @@
+
+> svma-ai-intelligence-platform@2.8.1 test:reconciliation-api
+> node scripts/test-reconciliation-api.mjs
+
+PASS Authenticated upload route returns the approved result
+PASS Export route produces all category and evidence sheets
+PASS Unauthenticated upload and export remain denied
+PASS Missing Finance permission remains denied
+PASS Incomplete upload is rejected
+PASS Old reconciliation payload is rejected on export
+PASS History save failure still returns results with a visible warning
+
+7 API checks passed (authorization and database mocked; no live service writes).

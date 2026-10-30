@@ -1,0 +1,44 @@
+{
+  "name": "svma-ai-intelligence-platform",
+  "version": "2.8.6",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "PLAYWRIGHT_BROWSERS_PATH=0 next start",
+    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium",
+    "typecheck": "tsc --noEmit",
+    "verify": "tsc --noEmit && next build",
+    "validate:v5": "node scripts/validate-v5.mjs",
+    "validate:v6": "node scripts/validate-v6.mjs",
+    "validate:v7": "node scripts/validate-v7.mjs",
+    "test:reconciliation": "node scripts/test-reconciliation.mjs",
+    "test:reconciliation-api": "node scripts/test-reconciliation-api.mjs",
+    "test:payments": "node scripts/test-payments.mjs",
+    "test:reports": "node scripts/test-modern-reports.mjs",
+    "test:entries": "node scripts/test-entry-v86.mjs",
+    "erp:install-browser": "playwright install chromium"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.49.4",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^0.468.0",
+    "next": "16.3.1",
+    "openai": "^4.86.1",
+    "pdfkit": "^0.20.2",
+    "playwright": "^1.63.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "web-push": "^3.6.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/pdfkit": "^0.17.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "^19.0.2",
+    "@types/web-push": "^3.6.4",
+    "typescript": "5.9.3"
+  }
+}

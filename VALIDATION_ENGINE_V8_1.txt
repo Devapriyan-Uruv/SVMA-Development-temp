@@ -1,0 +1,80 @@
+
+> svma-ai-intelligence-platform@2.8.1 test:reconciliation
+> node scripts/test-reconciliation.mjs
+
+{
+  "date": "2026-09-10",
+  "summary": {
+    "weighments": 75,
+    "physicalMovements": 75,
+    "gateMatched": 47,
+    "gateMatchRequired": 28,
+    "erpMatched": 47,
+    "erpMissing": 6,
+    "tallyMatched": 46,
+    "tallyMissing": 29,
+    "needsReview": 28,
+    "purchases": 25,
+    "sales": 22,
+    "others": 28,
+    "jobWork": 0,
+    "purchaseFound": 23,
+    "purchaseMissing": 2,
+    "salesFound": 16,
+    "salesMissing": 6
+  },
+  "categories": {
+    "Purchase": 25,
+    "Sales": 22,
+    "Others": 28,
+    "Job Work": 0
+  },
+  "vouchers": 180,
+  "evidence": 205
+}
+PASS Legacy XLS reads every physical weighment
+PASS Operational date is preserved
+PASS All Gate source entries parsed
+PASS All eleven Tally sheets recognized
+PASS Approved four category totals reproduced
+PASS Approved Tally presence totals reproduced
+PASS All unmatched entries retained
+PASS All approved row-level results reproduced
+PASS Master rows and weights agree with reference CR
+PASS Gold Gate + SO evidence remains visible
+PASS Firewood names found without reclassifying as Purchase
+PASS Water expense for a different supplier is not a name match
+PASS Duplicate voucher appearances consolidate with provenance
+PASS New dates/vehicles/names work without reference-day values
+PASS Name check runs when PO is blank
+PASS Weighment party is searched even with no Gate
+PASS Order-only match is distinguished from a name match
+PASS Matching numeric suffix with a different prefix is rejected
+PASS Repeated vehicle trips stay unallocated
+PASS A single shared Gate is not assigned to two weighments
+PASS Cross-midnight adjacent-day Gate is considered
+PASS A distant Gate date cannot inject an unrelated order
+PASS Missing Gate date remains candidate only
+PASS Same-day compatible Gate is preferred
+PASS An old voucher is allowed as name presence and labelled
+PASS Job Work requires an explicit rule
+PASS JWBARI stays Sales despite internal customer
+PASS Different unrelated names are not accepted
+PASS Trader initials do not match generic SRI names
+PASS Configured aliases work for future spellings
+PASS Adding a new unmatched weighment changes totals rather than dropping it
+PASS Source order does not change matching answers
+PASS Duplicate source references are visible without deleting physical rows
+PASS Reordered Gate headers and renamed sheets work
+PASS A valid empty Gate report is allowed
+PASS Malformed input does not silently produce zero matches
+PASS Unknown weighment date asks for a date
+PASS Date override works with arbitrary future report
+PASS A physical row with missing serial or vehicle is retained
+PASS Invalid calendar dates are rejected
+PASS Additional voucher Particulars lines are searched
+PASS Unknown raw material can use an explicit inbound PO
+PASS Excel has exactly the four category tabs and all physical rows
+PASS Runtime matching does not contain fixture identifiers or counts
+
+44 reconciliation checks passed.

@@ -1,0 +1,36 @@
+SVMA V5 changed/added files relative to the supplied V4 application
+Generated 11-Sep-2026
+
+Files FINANCE_LOGIC_VERIFICATION.md and FINANCE_LOGIC_VERIFICATION.md differ
+Files README.md and README.md differ
+Only in /mnt/data/svma_v4_work/SVMA_AI_Intelligence_Platform_QC_DATA_ENTRY_V4: RELEASE_V5_FINAL.md
+Only in /mnt/data/svma_v4_work/SVMA_AI_Intelligence_Platform_QC_DATA_ENTRY_V4: SQL_EXECUTION_ORDER_V5.md
+Only in /mnt/data/svma_v4_work/SVMA_AI_Intelligence_Platform_QC_DATA_ENTRY_V4: V5_TEST_RESULTS.md
+Files app/admin/page.tsx and app/admin/page.tsx differ
+Files app/api/admin/parameters/route.ts and app/api/admin/parameters/route.ts differ
+Files app/api/entries/route.ts and app/api/entries/route.ts differ
+Files app/api/quality/dashboard/route.ts and app/api/quality/dashboard/route.ts differ
+Files app/api/reconcile/amount/route.ts and app/api/reconcile/amount/route.ts differ
+Files app/api/reconcile/export-amount/route.ts and app/api/reconcile/export-amount/route.ts differ
+Files app/api/reconcile/export-transaction/route.ts and app/api/reconcile/export-transaction/route.ts differ
+Files app/api/reconcile/transaction/route.ts and app/api/reconcile/transaction/route.ts differ
+Files app/api/shift/session/route.ts and app/api/shift/session/route.ts differ
+Files app/ceo/page.tsx and app/ceo/page.tsx differ
+Files app/finance/amount/page.tsx and app/finance/amount/page.tsx differ
+Files app/finance/page.tsx and app/finance/page.tsx differ
+Files app/finance/transaction/page.tsx and app/finance/transaction/page.tsx differ
+Files app/globals.css and app/globals.css differ
+Files app/quality/page.tsx and app/quality/page.tsx differ
+Only in app: reports
+Files app/solvent/page.tsx and app/solvent/page.tsx differ
+Files components/AppShell.tsx and components/AppShell.tsx differ
+Files components/ParameterEntryBoard.tsx and components/ParameterEntryBoard.tsx differ
+Only in components: SvmaIcons.tsx
+Only in docs: validation
+Files lib/reconcile.ts and lib/reconcile.ts differ
+Only in lib: reconciliationV5.ts
+Files lib/targetParser.ts and lib/targetParser.ts differ
+Files package.json and package.json differ
+Only in /mnt/data/svma_v4_work/SVMA_AI_Intelligence_Platform_QC_DATA_ENTRY_V4: scripts
+Only in sql: 000_RUN_THIS_NOW_V5.sql
+Only in sql: 013_v5_industrial_glass_finance_quality.sql

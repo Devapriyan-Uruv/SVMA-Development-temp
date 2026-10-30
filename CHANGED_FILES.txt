@@ -1,0 +1,245 @@
+SVMA AI Intelligence Platform — Changed Files (Behance-aligned redesign pass)
+Generated from a full-tree SHA-256 diff against the source ZIP.
+Round 2 responded to feedback that round 1 "still looked the same"
+(typography/spacing/radius modernization). Round 3 responds to feedback
+that it still looked AI-generated / impersonal, using the SaaSto Figma
+template you supplied as a component reference (colorful icon system +
+avatar list rows). Round 4 fixes a real data-entry reliability bug and
+turns on live deviation notifications to CEO/Solvent Head. Round 5 (V3) is
+a backend/operational pass (immutable entries, TARGET_MISSING, live alerts,
+Quality SLA tracking). Round 6 (V4) re-derives the Quality parameter set
+from three newly-supplied PDF lab reports and redesigns the Quality entry
+screen, dashboard/analytics and Admin parameter review flow around it. See
+UI_REDESIGN_NOTES.md and IMPLEMENTATION_NOTES.md for what changed and why.
+
+-- Modified (round 1) --
+  M  ./app/admin/page.tsx
+  M  ./app/globals.css
+  M  ./app/page.tsx
+  M  ./app/quality/page.tsx
+  M  ./app/quality/tickets/page.tsx
+  M  ./app/solvent/page.tsx
+  M  ./app/solvent/tickets/page.tsx
+  M  ./components/AppShell.tsx
+  M  ./next-env.d.ts
+
+-- Modified (round 2 — typography, type scale, spacing, radius) --
+  M  ./app/globals.css   (V4 section appended: 218-selector font-size
+                           rescale, larger radius tokens, generous
+                           card/button/input/table/nav spacing)
+  M  ./app/layout.tsx    (wires the self-hosted Urbanist display font)
+
+-- Added (round 1) --
+  A  ./components/AlertBanner.tsx
+  A  ./components/Drawer.tsx
+  A  ./components/EmptyState.tsx
+  A  ./components/FilterBar.tsx
+  A  ./components/Modal.tsx
+  A  ./components/SegmentedControl.tsx
+  A  ./components/Skeleton.tsx
+  A  ./components/StatusBadge.tsx
+  A  ./components/TicketBoard.tsx
+  A  ./package-lock.json
+
+-- Added (round 2) --
+  A  ./app/fonts/Urbanist-Variable.ttf   (OFL-licensed, self-hosted variable
+                                          font — no build-time network call)
+
+-- Modified (round 3 — SaaSto-reference colorful icons + avatar list rows) --
+  M  ./app/globals.css              (V5 section: tone-colored icon chips,
+                                      .row-list avatar/icon-row component)
+  M  ./components/Kpi.tsx           (new OPTIONAL icon/tone props only —
+                                      old calls with neither still work)
+  M  ./components/StatusBadge.tsx   (exports statusTone() helper; badge
+                                      behavior itself unchanged)
+  M  ./components/TicketBoard.tsx   (ticket table -> icon/avatar row list;
+                                      same /api/tickets calls and fields)
+  M  ./app/admin/page.tsx           (Users tab table -> avatar row list;
+                                      same create/update/disable handlers)
+  M  ./app/solvent/page.tsx, ./app/quality/page.tsx, ./app/ceo/page.tsx,
+     ./app/finance/page.tsx, ./app/finance/amount/page.tsx,
+     ./app/finance/transaction/page.tsx, ./app/quality/analytics/page.tsx,
+     ./app/solvent/analytics/page.tsx
+                                     (added icon+tone to existing <Kpi/>
+                                      calls only; label/value/foot text
+                                      unchanged — see FINANCE_LOGIC_
+                                      VERIFICATION.md for the 3 Finance
+                                      pages in this list)
+
+-- Finance / business-logic files (unchanged, hash-verified) --
+  =  lib/reconcile.ts
+  =  lib/normalize.ts
+  =  lib/metrics.ts
+  =  app/api/reconcile/amount/route.ts
+  =  app/api/reconcile/export-amount/route.ts
+  =  app/api/reconcile/export-transaction/route.ts
+  =  app/api/reconcile/physical/route.ts
+  =  app/api/reconcile/transaction/route.ts
+
+-- Modified (round 4 — data-entry reliability fix + live notifications) --
+  M  ./components/ParameterEntryBoard.tsx  (AI-summary refresh no longer
+                                             blocks the Save action; entries
+                                             themselves save exactly as
+                                             before)
+  M  ./app/api/reports/route.ts            (a slow/failing OpenAI call now
+                                             falls back to the deterministic
+                                             report instead of a 500;
+                                             deviation/target logic
+                                             untouched — Solvent/Quality
+                                             only, not Finance)
+  M  ./components/AppShell.tsx             (static bell -> <NotificationBell/>)
+
+-- Added (round 4) --
+  A  ./app/api/notifications/route.ts   (GET/PATCH, scoped to the signed-in
+                                         user; no SQL migration needed —
+                                         table + RLS already existed)
+  A  ./components/NotificationBell.tsx  (topbar bell: unread badge, 45s
+                                         poll, dropdown, mark-read)
+
+-- Added (round 5 / V3 — Operational Intelligence) --
+  A  ./sql/010_v3_operational_intelligence.sql   (entry immutability +
+                                                   amendments, TARGET_MISSING
+                                                   status, notification ack +
+                                                   dedupe, ticket severity
+                                                   threshold, quality_sample_
+                                                   tasks table, index hygiene)
+  A  ./sql/011_v3_quality_full_import.sql        (79-row Quality parameter
+                                                   re-import from LAB REPORTS
+                                                   AI 1.xlsx; deactivates the
+                                                   009 hand-typed Quality
+                                                   rows first — see
+                                                   QUALITY_MAPPING.md)
+  A  ./sql/000_RUN_THIS_NOW_V3.sql               ("just run this one" concat
+                                                   of 010 + 011, same
+                                                   convention as every prior
+                                                   000_RUN_THIS_NOW_* file)
+  A  ./lib/targetParser.ts     (deterministic numeric/directional-word target
+                                 parsing for the new Quality workbook's text;
+                                 standalone — not wired into lib/metrics.ts)
+  A  ./lib/slaParser.ts        (sample-frequency + result-SLA free-text
+                                 parsing, typo-tolerant; standalone)
+  A  ./lib/alerts.ts           (Web Audio alert beep + navigator.vibrate,
+                                 gated behind a browser-gesture unlock)
+  A  ./lib/supabase/browser.ts (browser-side Supabase client singleton for
+                                 Realtime subscriptions)
+  A  ./app/api/entries/amend/route.ts        (audited amendment workflow;
+                                               Solvent Head / Quality Head /
+                                               Super Admin only)
+  A  ./app/api/quality/sample-tasks/route.ts (GET list, PATCH mark received)
+  A  ./app/api/quality/sla-sweep/route.ts    (idempotent overdue detection +
+                                               notification, polled client-side)
+
+-- Modified (round 5 / V3) --
+  M  ./app/api/entries/route.ts            (root-cause fix: atomic INSERT
+                                             ... ON CONFLICT DO NOTHING ->
+                                             409 ENTRY_LOCKED instead of a
+                                             silent overwrite; TARGET_MISSING
+                                             now notifies instead of being
+                                             folded into 'normal'; ticket
+                                             threshold now configurable;
+                                             best-effort quality_sample_tasks
+                                             linkage on save)
+  M  ./app/api/shift/session/route.ts      (generates quality_sample_tasks
+                                             rows on session open / product
+                                             change)
+  M  ./app/api/notifications/route.ts      (PATCH gains acknowledge; new PUT
+                                             for sound_enabled preference)
+  M  ./app/api/admin/parameters/route.ts   (ticket_severity_threshold,
+                                             sample_grace_minutes fields)
+  M  ./app/api/solvent/dashboard/route.ts  (Date/Date-range/Shift/Product/
+                                             Severity filters; counts
+                                             target_missing)
+  M  ./app/api/quality/dashboard/route.ts  (same filters; adds sample/result
+                                             SLA summary block)
+  M  ./components/NotificationBell.tsx     (Supabase Realtime subscription,
+                                             sound/vibration, sound-enabled
+                                             toggle, acknowledge-required
+                                             critical overlay; 45s poll kept
+                                             as fallback)
+  M  ./components/ParameterEntryBoard.tsx  (locked/read-only cells once an
+                                             entry exists, amended-value +
+                                             "Amended" badge display, Request
+                                             correction drawer, Quality
+                                             sample-task strip with Mark
+                                             received, 60s SLA-sweep poll)
+  M  ./app/globals.css                     (V7 layer, additive only: alert
+                                             overlay, locked-input/badge,
+                                             amend link, target-missing pill,
+                                             sample-task chips, dashboard
+                                             filter bar)
+  M  ./app/admin/page.tsx                  (Parameters drawer: ticket
+                                             severity + sample grace inputs)
+  M  ./app/solvent/analytics/page.tsx      (date-range + severity filters)
+  M  ./app/quality/analytics/page.tsx      (date-range + severity filters)
+  M  ./app/quality/page.tsx                (Samples Received / Results On
+                                             Time KPI row)
+  M  ./README.md                           (V3 header + doc links)
+
+-- Finance / business-logic files (unchanged, hash-verified — round 5) --
+  =  lib/reconcile.ts
+  =  lib/normalize.ts
+  =  lib/metrics.ts
+  =  app/api/reconcile/amount/route.ts
+  =  app/api/reconcile/export-amount/route.ts
+  =  app/api/reconcile/export-transaction/route.ts
+  =  app/api/reconcile/physical/route.ts
+  =  app/api/reconcile/transaction/route.ts
+
+-- Added (round 6 / V4 — QC data-entry realignment) --
+  A  ./sql/012_v4_quality_report_realign.sql  (83-row Quality parameter
+                                                re-derivation from
+                                                PK_LAB_REPORTS.pdf /
+                                                COPRA_LAB_REPORTS.pdf /
+                                                RB__LAB_REPORTS.pdf;
+                                                deactivates the 011
+                                                xlsx-derived rows first —
+                                                see QUALITY_MAPPING.md §8)
+  A  ./sql/000_RUN_THIS_NOW_V4.sql            ("just run this one" copy of
+                                                012, same convention as
+                                                every prior
+                                                000_RUN_THIS_NOW_* file)
+
+-- Modified (round 6 / V4, Quality module + shared Admin config only) --
+  M  ./components/ParameterEntryBoard.tsx  (new QualityGridTable: all 8 hour
+                                             columns + live MIN/MAX/AVG +
+                                             Comments visible per parameter
+                                             row; only the active hour's
+                                             column is editable; Solvent's
+                                             existing SourceTable view is
+                                             unchanged and still used for
+                                             non-Quality-grid scopes)
+  M  ./app/api/quality/dashboard/route.ts  (adds min/max per metric,
+                                             alongside the existing average)
+  M  ./app/quality/analytics/page.tsx      (Min/Max shown on each metric
+                                             card next to Avg/Warnings/Critical)
+  M  ./app/api/admin/parameters/route.ts   (PATCH whitelist now includes
+                                             source_review_required — this
+                                             existing DB column was never
+                                             clearable from the Admin UI
+                                             before this round)
+  M  ./app/admin/page.tsx                  (Parameters: "N parameters need
+                                             review" banner + filter,
+                                             per-row NEEDS REVIEW pill, and
+                                             an explanatory notice + confirm
+                                             checkbox in the parameter edit
+                                             drawer)
+  M  ./app/globals.css                     (V8 layer, additive only: the
+                                             Quality entry grid, plus
+                                             review-needed banner/pill/row
+                                             styling)
+
+-- Finance / business-logic files (unchanged, hash-verified — round 6) --
+  =  lib/reconcile.ts
+  =  lib/normalize.ts
+  =  lib/metrics.ts
+  =  app/api/reconcile/amount/route.ts
+  =  app/api/reconcile/export-amount/route.ts
+  =  app/api/reconcile/export-transaction/route.ts
+  =  app/api/reconcile/physical/route.ts
+  =  app/api/reconcile/transaction/route.ts
+
+-- Untouched this round (out of scope by design — see IMPLEMENTATION_NOTES.md §6) --
+  =  app/solvent/**
+  =  app/finance/**
+  =  lib/targetParser.ts
+  =  lib/slaParser.ts

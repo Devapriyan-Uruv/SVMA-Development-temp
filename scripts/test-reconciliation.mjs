@@ -1,0 +1,80 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import ts from 'typescript';
+import * as XLSX from 'xlsx';
+const root=process.cwd(),temporary=fs.mkdtempSync(path.join(root,'.reconciliation-test-'));
+let passed=0;
+const check=(name,fn)=>{fn();passed++;console.log(`PASS ${name}`);};
+try{
+ for(const name of ['transactionPresence','transactionExport'])fs.writeFileSync(path.join(temporary,`${name}.js`),ts.transpileModule(fs.readFileSync(path.join(root,'lib',`${name}.ts`),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText);
+ const require=createRequire(path.join(temporary,'test.cjs'));
+ const engine=require('./transactionPresence.js'),{exportTransactionWorkbook}=require('./transactionExport.js');
+ const fixture=path.resolve(process.argv[2]||'reference-samples/validation-10-Sep-2026');
+ const read=name=>XLSX.read(fs.readFileSync(path.join(fixture,name)),{type:'buffer',cellDates:true});
+ const weigh=engine.parseWeighmentUpload(read('WeighmentRegister.Xls'),'WeighmentRegister.Xls');
+ const gateIn=engine.parseGateUpload(read('Gate In EntrySVMAAdmin20260911110306AM.xlsx'),'Gate In EntrySVMAAdmin20260911110306AM.xlsx','IN');
+ const gateOut=engine.parseGateUpload(read('Gate Out EntrySVMAAdmin20260911110248AM.xlsx'),'Gate Out EntrySVMAAdmin20260911110248AM.xlsx','OUT');
+ const tally=engine.parseTallyUpload(read('Daybook 10.09.26.xlsx'),'Daybook 10.09.26.xlsx');
+ const result=engine.reconcilePresence(weigh.rows,[...gateIn,...gateOut],tally.vouchers);
+ console.log(JSON.stringify({date:weigh.date,summary:result.summary,categories:result.categoryCounts,vouchers:tally.vouchers.length,evidence:result.nameEvidence.length},null,2));
+ check('Legacy XLS reads every physical weighment',()=>assert.equal(weigh.rows.length,75));
+ check('Operational date is preserved',()=>assert.equal(weigh.date,'2026-09-10'));
+ check('All Gate source entries parsed',()=>assert.equal(gateIn.length+gateOut.length,163));
+ check('All eleven Tally sheets recognized',()=>assert.equal(tally.recognizedSheets,11));
+ check('Approved four category totals reproduced',()=>assert.deepEqual(result.categoryCounts,{Purchase:25,Sales:22,Others:28,'Job Work':0}));
+ check('Approved Tally presence totals reproduced',()=>assert.equal(result.summary.tallyMatched,46));
+ check('All unmatched entries retained',()=>assert.equal(result.summary.tallyMissing,29));
+ check('All approved row-level results reproduced',()=>{
+  const baseline=JSON.parse(fs.readFileSync(path.join(fixture,'reviewed-presence.json'),'utf8'));
+  for(const expected of baseline){const actual=result.svmaCR.find(r=>r.weighBridgeRef===expected.ref);assert.ok(actual,expected.ref);assert.equal(actual.status,expected.category,expected.ref);assert.equal(actual.tallyState,expected.status,expected.ref);assert.deepEqual([...new Set(actual.evidence.map(e=>e.voucherNo))].sort(),expected.vouchers.sort(),expected.ref);}
+ });
+ check('Master rows and weights agree with reference CR',()=>{
+  const reference=XLSX.utils.sheet_to_json(read('SVMA-CR-10.09.2026.xlsx').Sheets.wb,{header:1,defval:null});
+  for(const w of weigh.rows){const r=reference.find(r=>String(r[0])===w.ref);assert.ok(r,w.ref);assert.equal(w.vehicle,String(r[1]).trim());assert.equal(w.weight,r[12]);}
+ });
+ check('Gold Gate + SO evidence remains visible',()=>{const r=result.svmaCR.find(r=>r.weighBridgeRef==='0141938');assert.equal(r.erpGpNo,'GE-OU/3191/26-27');assert.ok(r.evidence.some(e=>e.voucherNo==='DORB/00784/26-27'));assert.ok(r.evidence.some(e=>e.matchedOrders.includes('DORB-SO/00320/26-27')));});
+ check('Firewood names found without reclassifying as Purchase',()=>{const rows=result.svmaCR.filter(r=>engine.materialFamily(r.material)==='FIREWOOD');assert.equal(rows.length,10);assert.equal(rows.filter(r=>r.evidence.length).length,4);assert.ok(rows.every(r=>r.status==='Others'));});
+ check('Water expense for a different supplier is not a name match',()=>{const rows=result.svmaCR.filter(r=>engine.materialFamily(r.material)==='WATER');assert.equal(rows.length,10);assert.ok(rows.every(r=>!r.evidence.length&&r.status==='Others'));});
+ check('Duplicate voucher appearances consolidate with provenance',()=>{const v=tally.vouchers.find(v=>v.vch==='DORB/00784/26-27'&&v.party==='KSE LIMITED-THIRUVANANDHAPURAM');assert.ok(v.sources.length>=2);assert.equal(tally.vouchers.filter(x=>x.id===v.id).length,1);});
+ const src={file:'future.xlsx',sheet:'Entries',row:2};
+ const w={id:'physical-new',ref:'NEW-001',vehicle:'ZX 44 AB 7788',party:'Orchid Industrial Supplies',material:'Rice Bran',weight:5000,date:'2030-02-12',source:src};
+ const g={id:'gate-new',gp:'GATE-NEW-001',vehicle:'ZX44AB7788',party:'Orchid Industrial Supplies',material:'Rice Bran Grade II',order:'NEW-PO/902/30-31',invoice:'INV-902',date:'2030-02-12',direction:'IN',source:src};
+ const v={id:'voucher-new',company:'TEST COMPANY',date:'2030-02-12',party:'Orchid Industrial Supplies Ltd',type:'Purchase - Bran ERP',vch:'NEW-PUR/703/30-31',order:'',invoice:'',qty:5,particulars:['Orchid Industrial Supplies Ltd'],details:[],sources:[src]};
+ const run=(ws=[w],gs=[g],vs=[v],rules)=>engine.reconcilePresence(ws,gs,vs,rules);
+ check('New dates/vehicles/names work without reference-day values',()=>{const r=run();assert.equal(r.summary.tallyMatched,1);assert.equal(r.svmaCR[0].basis,'Name only');assert.equal(r.svmaCR[0].erpGpNo,g.gp);});
+ check('Name check runs when PO is blank',()=>assert.equal(run([w],[{...g,order:''}]).summary.tallyMatched,1));
+ check('Weighment party is searched even with no Gate',()=>{const r=run([w],[]);assert.equal(r.summary.tallyMatched,1);assert.equal(r.svmaCR[0].evidence[0].nameSource,'Weighment');});
+ check('Order-only match is distinguished from a name match',()=>{const r=run([w],[g],[{...v,party:'Different Enterprise',particulars:['Different Enterprise'],vch:g.order}]).svmaCR[0];assert.equal(r.tallyState,'Matching with Tally');assert.equal(r.basis,'Order/reference');assert.equal(r.evidence[0].nameVerification,'Name differs');});
+ check('Matching numeric suffix with a different prefix is rejected',()=>assert.equal(run([w],[g],[{...v,party:'Different Enterprise',particulars:['Different Enterprise'],vch:'OTHER-PO/902/30-31'}]).summary.tallyMatched,0));
+ check('Repeated vehicle trips stay unallocated',()=>{const r=run([w,{...w,id:'second',ref:'NEW-002'}],[g,{...g,id:'g2',gp:'GATE-NEW-002'}]);assert.ok(r.svmaCR.every(x=>!x.erpGpNo));assert.equal(r.svmaCR.length,2);});
+ check('A single shared Gate is not assigned to two weighments',()=>assert.ok(run([w,{...w,id:'second',ref:'NEW-002'}],[g]).svmaCR.every(r=>!r.erpGpNo)));
+ check('Cross-midnight adjacent-day Gate is considered',()=>assert.equal(run([w],[{...g,date:'2030-02-11'}]).svmaCR[0].erpGpNo,g.gp));
+ check('A distant Gate date cannot inject an unrelated order',()=>{const r=run([w],[{...g,date:'2029-01-01'}],[]);assert.equal(r.svmaCR[0].erpGpNo,'');assert.ok(r.svmaCR[0].candidates.every(c=>!c.selected));});
+ check('Missing Gate date remains candidate only',()=>assert.equal(run([w],[{...g,date:''}]).svmaCR[0].erpGpNo,''));
+ check('Same-day compatible Gate is preferred',()=>{const r=run([w],[g,{...g,id:'old',gp:'OLDER',date:'2030-02-11'}]);assert.equal(r.svmaCR[0].erpGpNo,g.gp);});
+ check('An old voucher is allowed as name presence and labelled',()=>{const r=run([w],[g],[{...v,date:'2020-01-01'}]).svmaCR[0];assert.ok(r.evidence.length);assert.ok(r.notes.some(n=>n.includes('other voucher dates')));});
+ check('Job Work requires an explicit rule',()=>assert.equal(run([{...w,material:'Service material'}],[{...g,material:'Service material',direction:'OUT',order:'JOW-SO/900/30-31'}]).svmaCR[0].status,'Job Work'));
+ check('JWBARI stays Sales despite internal customer',()=>assert.equal(run([{...w,material:'SOYABARI'}],[{...g,material:'SOYA BARI - 25 mm',direction:'OUT',party:'SVMA SOYA FOODS PRIVATE LIMITED',order:'JWBARI-SO/900/30-31'}]).svmaCR[0].status,'Sales'));
+ check('Different unrelated names are not accepted',()=>assert.ok(engine.nameSimilarity('NAGARAJ','Yovan,Thamaraipadi')<.86));
+ check('Trader initials do not match generic SRI names',()=>assert.ok(engine.nameSimilarity('S.R.TRADERS','SRI AMMAN TRADERS-CHENNAI')<.86));
+ check('Configured aliases work for future spellings',()=>assert.equal(engine.nameSimilarity('ABC','Unrelated long legal name',{...engine.DEFAULT_RULES,nameAliases:[['ABC','Unrelated long legal name']]}),1));
+ check('Adding a new unmatched weighment changes totals rather than dropping it',()=>{const r=engine.reconcilePresence([...weigh.rows,{...w,id:'added'}],[...gateIn,...gateOut],tally.vouchers);assert.equal(r.svmaCR.length,76);assert.equal(r.summary.tallyMissing,30);});
+ check('Source order does not change matching answers',()=>{const shuffled=engine.reconcilePresence([...weigh.rows].reverse(),[...gateOut,...gateIn].reverse(),[...tally.vouchers].reverse());for(const r of result.svmaCR){const other=shuffled.svmaCR.find(x=>x.weighmentId===r.weighmentId);assert.equal(other.status,r.status);assert.equal(other.erpGpNo,r.erpGpNo);assert.deepEqual(other.evidence.map(e=>e.voucherNo).sort(),r.evidence.map(e=>e.voucherNo).sort());}});
+ check('Duplicate source references are visible without deleting physical rows',()=>{const r=run([w,{...w,id:'dup',source:{...src,row:3}}],[]);assert.equal(r.svmaCR.length,2);assert.equal(r.sourceControl.duplicateSourceReferences,1);assert.equal(r.sourceControl.duplicateOutputTransactions,0);});
+ const book=(rows,name='Renamed sheet')=>{const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,XLSX.utils.aoa_to_sheet(rows),name);return b;};
+ check('Reordered Gate headers and renamed sheets work',()=>{const gs=engine.parseGateUpload(book([['Vehicle Number','Material','Supplier Name','Gate Pass No','Date','PO No'],['ZX44AB7788','Rice Bran','Orchid','GP-FUTURE','12/02/2030','PO-FUTURE']]),'new.xlsx','IN');assert.equal(gs[0].order,'PO-FUTURE');assert.equal(gs[0].date,'2030-02-12');});
+ check('A valid empty Gate report is allowed',()=>assert.equal(engine.parseGateUpload(book([['Vehicle No','Material','Supplier Name','Gate Pass No']]),'empty.xlsx','IN').length,0));
+ check('Malformed input does not silently produce zero matches',()=>assert.throws(()=>engine.parseTallyUpload(book([['Wrong data']]),'bad.xlsx'),/required|no Day Book/i));
+ check('Unknown weighment date asks for a date',()=>assert.throws(()=>engine.parseWeighmentUpload(book([['Serial No','Vehicle No','Party Name','Material','Net Weight'],['W-1','CAR','Orchid','Rice Bran',5]]),'new.xlsx'),/date could not be detected/i));
+ check('Date override works with arbitrary future report',()=>assert.equal(engine.parseWeighmentUpload(book([['Serial No','Vehicle No','Party Name','Material','Net Weight'],['W-1','CAR','Orchid','Rice Bran',5]]),'new.xlsx','2030-02-12').date,'2030-02-12'));
+ check('A physical row with missing serial or vehicle is retained',()=>{const parsed=engine.parseWeighmentUpload(book([['Serial No','Vehicle No','Party Name','Material','Net Weight'],['','CAR','Orchid','Rice Bran',5],['W-2','','Orchid','Rice Bran',10],['Grand Total','','','',15]]),'new.xlsx','2030-02-12');assert.equal(parsed.rows.length,2);const r=engine.reconcilePresence(parsed.rows,[],[]);assert.equal(r.svmaCR.length,2);assert.ok(r.svmaCR[0].notes.some(n=>n.includes('reference is missing')));assert.ok(r.svmaCR[1].notes.some(n=>n.includes('Vehicle number is missing')));});
+ check('Invalid calendar dates are rejected',()=>assert.equal(engine.calendarDate('31/02/2030'),''));
+ check('Additional voucher Particulars lines are searched',()=>{const r=run([w],[g],[{...v,party:'Expense Ledger',particulars:['Expense Ledger',w.party]}]);assert.equal(r.svmaCR[0].evidence[0].tallyParticulars,w.party);});
+ check('Unknown raw material can use an explicit inbound PO',()=>assert.equal(run([{...w,material:'New Feedstock'}],[{...g,material:'New Feedstock'}]).svmaCR[0].status,'Purchase'));
+ check('Excel has exactly the four category tabs and all physical rows',()=>{const wb=exportTransactionWorkbook(result.svmaCR,weigh.date);assert.deepEqual(wb.SheetNames.slice(0,5),['Main','Purchase','Sales','Others','Job Work']);assert.equal(XLSX.utils.sheet_to_json(wb.Sheets.Main).length,75);assert.equal(XLSX.utils.sheet_to_json(wb.Sheets.Main)[0]['WEIGH BRIDGE REF NO'],'0141938');assert.equal(wb.Sheets['Job Work'].I1.v,'STATUS');assert.ok(wb.SheetNames.includes('Name Evidence'));const loaded=XLSX.read(XLSX.write(wb,{type:'buffer',bookType:'xlsx'}),{type:'buffer'});assert.equal(XLSX.utils.sheet_to_json(loaded.Sheets.Main).length,75);assert.equal(loaded.Sheets.Main.F2.t,'s');});
+ check('Runtime matching does not contain fixture identifiers or counts',()=>{const code=fs.readFileSync('lib/transactionPresence.ts','utf8');for(const token of ['0141938','TN52K0288','RB-PO/1069','2026-09-10','===75','===46'])assert.ok(!code.includes(token),token);});
+ console.log(`\n${passed} reconciliation checks passed.`);
+ if(process.env.SVMA_TEST_OUTPUT){fs.writeFileSync(process.env.SVMA_TEST_OUTPUT,JSON.stringify({...result,reconciliationDate:weigh.date,rulesVersion:'8.1'},null,2));}
+}finally{fs.rmSync(temporary,{recursive:true,force:true});}

@@ -1,0 +1,91 @@
+
+> svma-ai-intelligence-platform@2.8.1 build
+> next build
+
+▲ Next.js 16.3.1 (Turbopack)
+✓ Running next.config took 3ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 496ms
+  Running TypeScript ...
+  Finished TypeScript in 1105ms ...
+  Collecting page data using 9 workers ...
+  Generating static pages using 9 workers (0/61) ...
+  Generating static pages using 9 workers (15/61) 
+  Generating static pages using 9 workers (30/61) 
+  Generating static pages using 9 workers (45/61) 
+✓ Generating static pages using 9 workers (61/61) in 175ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /admin
+├ ƒ /api/admin/parameters
+├ ƒ /api/admin/shifts
+├ ƒ /api/admin/users
+├ ƒ /api/ai/solvent
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/deviations
+├ ƒ /api/entries
+├ ƒ /api/entries/amend
+├ ƒ /api/export/shift
+├ ƒ /api/me
+├ ƒ /api/notifications
+├ ƒ /api/parameters
+├ ƒ /api/quality/dashboard
+├ ƒ /api/quality/sample-tasks
+├ ƒ /api/quality/sla-sweep
+├ ƒ /api/reconcile/amount
+├ ƒ /api/reconcile/export-amount
+├ ƒ /api/reconcile/export-transaction
+├ ƒ /api/reconcile/physical
+├ ƒ /api/reconcile/transaction
+├ ƒ /api/reports
+├ ƒ /api/shift/focus
+├ ƒ /api/shift/history
+├ ƒ /api/shift/session
+├ ƒ /api/solvent/dashboard
+├ ƒ /api/tickets
+├ ƒ /api/tickets/evidence
+├ ƒ /ceo
+├ ƒ /finance
+├ ○ /finance/amount
+├ ƒ /finance/exceptions
+├ ƒ /finance/history
+├ ○ /finance/transaction
+├ ○ /input
+├ ○ /input/boiler
+├ ○ /input/hourly
+├ ○ /input/inspection
+├ ○ /login
+├ ○ /manifest.webmanifest
+├ ○ /quality
+├ ○ /quality-input
+├ ○ /quality-input/lab
+├ ○ /quality-input/shift
+├ ○ /quality/ai-inference
+├ ○ /quality/analytics
+├ ○ /quality/deviations
+├ ○ /quality/reports
+├ ○ /quality/tickets
+├ ○ /reports
+├ ○ /solvent
+├ ○ /solvent/ai-inference
+├ ○ /solvent/analytics
+├ ○ /solvent/boiler
+├ ○ /solvent/data-entry
+├ ○ /solvent/data-entry/hourly
+├ ○ /solvent/data-entry/inspection
+├ ○ /solvent/deviations
+├ ○ /solvent/reports
+├ ○ /solvent/tickets
+└ ○ /unauthorized
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

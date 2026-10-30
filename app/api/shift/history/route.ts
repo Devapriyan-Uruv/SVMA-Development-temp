@@ -1,0 +1,11 @@
+import {moduleAuthorization,SOLVENT_MANAGEMENT_ROLES,QUALITY_MANAGEMENT_ROLES} from '@/lib/authorize';
+import {NextRequest,NextResponse} from 'next/server';
+import {supabaseAdmin} from '@/lib/supabase/admin';
+import {attachHandoffInfo} from '@/lib/shiftHandoff';
+import {errorMessage,logServerError} from '@/lib/errors';
+export async function GET(req:NextRequest){try{const scope=req.nextUrl.searchParams.get('scope')==='quality'?'quality':'solvent',az=scope==='quality'?await moduleAuthorization('quality_management',QUALITY_MANAGEMENT_ROLES):await moduleAuthorization('solvent_management',SOLVENT_MANAGEMENT_ROLES);if(!az.ok)return NextResponse.json({error:az.status===401?'Not authenticated':'Management access not assigned'},{status:az.status});const date=req.nextUrl.searchParams.get('date')||'',page=Math.max(0,Number(req.nextUrl.searchParams.get('page'))||0);if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return NextResponse.json({error:'Choose a valid date'},{status:400});const db=supabaseAdmin();let query= db.from('shift_sessions').select('*,shift_master(*)').eq('scope',scope).eq('status','completed').order('operational_date',{ascending:false}).order('actual_end',{ascending:false});if(date)query=query.eq('operational_date',date);const {data,error}=await query.range(page*100,page*100+100);if(error)throw error;const page100=(data||[]).slice(0,100);const ids=Array.from(new Set(page100.map((x:any)=>x.operator_id).filter(Boolean)));let profiles:any[]=[];if(ids.length){const p=await db.from('profiles').select('id,full_name,email').in('id',ids);profiles=p.data||[]}const pm=new Map(profiles.map((p:any)=>[p.id,p]));
+// A shift handed over mid-way previously showed only the current holder here
+// with no trace of who actually started it or that a hand-off happened —
+// same gap as the report/export view (lib/shiftReport.ts), fixed the same way.
+const withHandoff=await Promise.all(page100.map((x:any)=>attachHandoffInfo(db,x)));
+return NextResponse.json({hasMore:(data||[]).length>100,shifts:withHandoff.map((x:any)=>({...x,operator:pm.get(x.operator_id)||null}))})}catch(e){logServerError('shift/history',e);return NextResponse.json({error:errorMessage(e,'Unable to load completed shifts')},{status:500})}}

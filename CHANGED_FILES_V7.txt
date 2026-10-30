@@ -1,0 +1,12 @@
+lib/targetParser.ts
+app/api/entries/route.ts
+app/api/export/shift/route.ts
+app/solvent/reports/page.tsx
+sql/015_v7_solvent_exact_master_ai_ticket_report.sql
+sql/000_RUN_THIS_NOW_V7.sql
+scripts/validate-v7.mjs
+package.json
+RELEASE_V7_SOLVENT_AI_TICKETS.md
+V7_TEST_RESULTS.md
+SQL_EXECUTION_ORDER_V7.md
+reference/solvent-approved-source/Solvent_Boiler_Utility_Approved_Source_2026-09-03.pdf

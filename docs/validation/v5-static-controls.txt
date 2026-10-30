@@ -1,0 +1,20 @@
+
+> svma-ai-intelligence-platform@2.5.0 validate:v5
+> node scripts/validate-v5.mjs
+
+PASS  Target required before entry submission
+PASS  Target missing never creates deviation
+PASS  Shift finalization blocks target gaps
+PASS  Data-entry UI locks rows with no target
+PASS  Admin requires visible target for active data-entry parameters
+PASS  Ambiguous bare numeric targets do not auto-deviate
+PASS  Known source-confirmed Quality NIL targets migrated
+PASS  Target gap audit view exists
+PASS  V5 one-shot SQL is Supabase-editor compatible
+PASS  Transaction reconciliation preserves weighment row population
+PASS  Purchase payment uses actual payment allocations
+PASS  Finance matching exposes review instead of guessing ambiguity
+PASS  Local-time greeting implemented client-side
+PASS  Regression sample identifiers are not hardcoded in production TS/TSX
+
+14/14 V5 static controls passed.
