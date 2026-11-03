@@ -27,7 +27,7 @@ export async function loadSettlement(db: Db, contractId: string): Promise<Loaded
   if (!contract) return null;
   const [inv, lk, ov] = await Promise.all([
     db.from('import_contract_invoices').select('*').eq('contract_id', contractId).order('sort_order').order('created_at'),
-    db.from('import_contract_links').select('kind,ref_key,col_key,status').eq('contract_id', contractId),
+    db.from('import_contract_links').select('kind,ref_key,col_key,status,invoice_id').eq('contract_id', contractId),
     db.from('import_contract_cells').select('invoice_id,col_key,value').eq('contract_id', contractId),
   ]);
   for (const r of [inv, lk, ov]) if (r.error) throw r.error;

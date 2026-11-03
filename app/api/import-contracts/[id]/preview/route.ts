@@ -14,7 +14,7 @@ export const runtime = 'nodejs';
 
 // Contracts live under the existing Import module (same access, same roles) — no separate module key.
 const MODULE_KEY = 'import';
-const BUCKET = 'import-contract-documents';
+const BUCKET = 'mport-contract-documents';
 const URL_EXPIRY_SECONDS = 300;
 
 type RouteContext = {

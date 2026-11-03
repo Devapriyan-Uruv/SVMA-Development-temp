@@ -1,7 +1,12 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAI, OPENAI_MODEL } from '@/lib/openai';
-import { ALLOWED_TYPES, EXTRACTION_PROMPT, parseExtraction, validFileSignature, safeFileName } from '@/lib/importContracts/extraction';
+import {
+  ALLOWED_TYPES,
+  EXTRACTION_PROMPT,
+  parseExtraction,
+  validFileSignature,
+  safeFileName,
+} from '@/lib/importContracts/extraction';
 import {
   moduleEditAuthorization,
   IMPORT_EDIT_ROLES,
@@ -11,14 +16,17 @@ import {
   errorMessage,
   logServerError,
 } from '@/lib/errors';
+import {
+  buildContractDuplicatePayload,
+  duplicatePayloadKey,
+} from '@/lib/importContracts/duplicate';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-// Contracts live under the existing Import module (same access, same roles) — no separate module key.
 const MODULE_KEY = 'import';
-const BUCKET = 'import-contract-documents';
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const BUCKET = 'mport-contract-documents';
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const MAX_FILES = 5;
 
 export async function POST(req: NextRequest) {
@@ -58,8 +66,7 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json(
         {
-          error:
-            'Upload at least one PDF or image in the files field.',
+          error: 'Upload at least one PDF or image in the files field.',
         },
         { status: 400 },
       );
@@ -76,31 +83,51 @@ export async function POST(req: NextRequest) {
 
     const files = submitted as File[];
     const db = supabaseAdmin();
-
-    // Metered through the URUV credits like every other AI call.
     const openai = getOpenAI('import_contract_extract');
 
-    const model = OPENAI_MODEL;
     const contracts: Record<string, unknown>[] = [];
+
+    // Fetch existing contract fingerprints from Supabase.
+const { data: existingContracts, error: existingError } = await db
+  .from('import_contracts')
+  .select(
+    'id, import_id, contract_number, supplier_name, duplicate_fingerprint'
+  );
+
+if (existingError) {
+  throw existingError;
+}
+
+// Store existing fingerprints for quick duplicate lookup.
+const existingByFingerprint = new Map<string, any>();
+
+for (const row of existingContracts ?? []) {
+  if (row.duplicate_fingerprint) {
+    existingByFingerprint.set(
+      row.duplicate_fingerprint,
+      row
+    );
+  }
+}
+    // Detect duplicates within the current upload batch.
+    const batchByPayload = new Map<string, string>();
 
     for (const file of files) {
       if (file.size === 0 || file.size > MAX_FILE_SIZE) {
         return NextResponse.json(
           {
-            error:
-              `${file.name}: the file must be between 1 byte and 10 MB.`,
+            error: `${file.name}: the file must be between 1 byte and 10 MB.`,
           },
-          { status: 400 },
+          { status: 400 }
         );
       }
 
       if (!ALLOWED_TYPES.has(file.type)) {
         return NextResponse.json(
           {
-            error:
-              `${file.name}: only PDF, JPG, and PNG files are supported.`,
+            error: `${file.name}: only PDF, JPG, and PNG files are supported.`,
           },
-          { status: 400 },
+          { status: 400 }
         );
       }
 
@@ -109,10 +136,9 @@ export async function POST(req: NextRequest) {
       if (!validFileSignature(bytes, file.type)) {
         return NextResponse.json(
           {
-            error:
-              `${file.name}: the file content does not match its declared type.`,
+            error: `${file.name}: the file content does not match its declared type.`,
           },
-          { status: 400 },
+          { status: 400 }
         );
       }
 
@@ -128,9 +154,7 @@ export async function POST(req: NextRequest) {
           upsert: false,
         });
 
-      if (uploadError) {
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
       uploadedPaths.push(storagePath);
 
@@ -163,7 +187,7 @@ export async function POST(req: NextRequest) {
             ];
 
       const response = await openai.responses.create({
-        model,
+        model: OPENAI_MODEL,
         input: [
           {
             role: 'user',
@@ -177,7 +201,35 @@ export async function POST(req: NextRequest) {
 
       const extraction = parseExtraction(response.output_text);
 
+      const duplicatePayload = buildContractDuplicatePayload({
+        fields: extraction.fields,
+        materials: extraction.materials,
+        additionalDetails: extraction.additionalDetails,
+      });
+
+      // Generate fingerprint for the extracted contract.
+      const payloadKey = duplicatePayloadKey(duplicatePayload);
+
+      // Check against previously saved contracts.
+      const duplicate = existingByFingerprint.get(payloadKey);
+
+      // Check against other PDFs uploaded in this batch.
+      const duplicateInBatch = batchByPayload.get(payloadKey); 
+
+      batchByPayload.set(payloadKey, file.name);
+
       contracts.push({
+        duplicateOf: duplicate
+          ? {
+              id: duplicate.id,
+              importId: duplicate.import_id,
+              contractNumber: duplicate.contract_number,
+              supplierName: duplicate.supplier_name,
+            }
+          : null,
+
+        duplicateInBatch: duplicateInBatch ?? null,
+
         fileName: file.name,
         originalFileName: file.name,
         documentPath: storagePath,
@@ -185,7 +237,6 @@ export async function POST(req: NextRequest) {
 
         fields: extraction.fields,
         materials: extraction.materials,
-
         additionalDetails: extraction.additionalDetails,
 
         missingFields: extraction.missingFields,
@@ -195,6 +246,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ contracts });
+
   } catch (e) {
     // Remove uploaded documents if extraction fails.
     try {
@@ -206,7 +258,7 @@ export async function POST(req: NextRequest) {
           .remove(uploadedPaths);
       }
     } catch {
-      // Preserve the original error for logging.
+      // Preserve the original error.
     }
 
     logServerError('import-contracts/extract', e);
@@ -215,10 +267,10 @@ export async function POST(req: NextRequest) {
       {
         error: errorMessage(
           e,
-          'Contract extraction failed. Check server logs for details.',
+          'Contract extraction failed. Check server logs for details.'
         ),
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

@@ -59,5 +59,70 @@ export function PeriodFilter({period,onChange,liveSessions,products,onStopped}:{
    setStopping(null);setStopReason('');onStopped?.();
   }catch(e){setStopError(e instanceof Error?e.message:'Unable to stop shift')}finally{setStopBusy(false)}
  }
+ 
  const entries=(liveSessions||[]).filter(x=>x.shift);
+
+ return <div className="period-filter-bar-sleek" ref={ref}>
+  <div className="period-filter-status">
+   <span className={`pill ${viewingLive?'ok':'info'}`}>
+    <CalendarClock size={12}/> {viewingLive?'Live shift':`${period.date}${period.shiftId?` • Shift ${period.shiftId}`:' • all shifts'}`}
+   </span>
+   {entries.length?entries.map((e,i)=>
+    <span key={i} className="pill ok live-now-chip">
+     <i className="live-dot"/> {e.scope.toUpperCase()} LIVE: {liveShiftText(e.shift)}
+     {canStop()?<button type="button" className="live-stop-btn" title="Stop this shift" onClick={()=>{setStopping({scope:e.scope,id:e.shift.id,label:e.scope});setStopError('')}}><Square size={10}/> Stop</button>:null}
+    </span>
+   ):<span className="pill neutral">No shift currently live</span>}
+  </div>
+
+  <div style={{position:'absolute',top:0,right:0}}>
+   <button type="button" className="filter-icon-btn" onClick={()=>setOpen(x=>!x)} aria-label="Filters">
+    <Filter size={15}/><span>Filters</span>
+   </button>
+   {open?<div className="filter-popover">
+    <label className="field compact-field">
+     <span>Date</span>
+     <input type="date" value={draft.date} onChange={e=>setDraft({...draft,date:e.target.value})}/>
+    </label>
+    <label className="field compact-field">
+     <span>Shift</span>
+     <select value={draft.shiftId} onChange={e=>setDraft({...draft,shiftId:e.target.value})}>
+      <option value="">All shifts</option>
+      <option value="1">Shift 1</option>
+      <option value="2">Shift 2</option>
+      <option value="3">Shift 3</option>
+     </select>
+    </label>
+    {products?.length?<label className="field compact-field">
+     <span>Product</span>
+     <select value={draft.product} onChange={e=>setDraft({...draft,product:e.target.value})}>
+      <option value="">All products</option>
+      {products.map(p=><option key={p.code} value={p.code}>{p.name}</option>)}
+     </select>
+    </label>:null}
+    <div style={{display:'flex',gap:8,marginTop:10}}>
+     <button type="button" className="btn btn-primary" style={{flex:1}} onClick={apply}>Apply</button>
+     {!viewingLive?<button type="button" className="btn btn-outline" onClick={backToLive}><Radio size={13}/></button>:null}
+    </div>
+   </div>:null}
+  </div>
+
+  {stopping?<div className="stop-shift-overlay" onClick={()=>setStopping(null)}>
+   <div className="stop-shift-modal" onClick={e=>e.stopPropagation()}>
+    <b>Stop the {stopping.label==='quality'?'Quality':'Solvent'} shift?</b>
+    <p className="sub" style={{marginTop:4}}>This force-closes it immediately, same as the operator's own "Close Shift" — any mandatory entries still missing stay missing.</p>
+    {stopError?<div className="notice danger" style={{marginTop:8}}>{stopError}</div>:null}
+    <label className="field compact-field" style={{marginTop:10}}>
+     <span>Reason (optional)</span>
+     <input value={stopReason} onChange={e=>setStopReason(e.target.value)} placeholder="e.g. Operator unreachable"/>
+    </label>
+    <div style={{display:'flex',gap:8,marginTop:10}}>
+     <button type="button" className="btn btn-danger" disabled={stopBusy} onClick={confirmStop}>{stopBusy?'Stopping…':'Confirm stop'}</button>
+     <button type="button" className="btn btn-outline" onClick={()=>setStopping(null)}>Cancel</button>
+    </div>
+   </div>
+  </div>:null}
+ </div>;
 }
+
+

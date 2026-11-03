@@ -62,13 +62,75 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       const { error } = await db.from('import_contracts').update(upd).eq('id', id); if (error) throw error;
     }
     if (Array.isArray(b.links)) {
-      for (const l of b.links as any[]) {
-        if (!['tally', 'erp'].includes(l.kind) || !l.refKey) continue;
-        if (l.status == null) { await db.from('import_contract_links').delete().eq('contract_id', id).eq('kind', l.kind).eq('ref_key', String(l.refKey)); continue; }
-        const { error } = await db.from('import_contract_links').upsert({ contract_id: id, kind: l.kind, ref_key: String(l.refKey), col_key: textOrNull(l.colKey, 40), status: l.status === 'excluded' ? 'excluded' : 'confirmed', decided_by: uid, decided_at: new Date().toISOString() }, { onConflict: 'contract_id,kind,ref_key' });
-        if (error) throw error;
+  for (const l of b.links as any[]) {
+    if (!['tally', 'erp'].includes(l.kind) || !l.refKey) continue;
+
+    if (l.status == null) {
+      const { error } = await db
+        .from('import_contract_links')
+        .delete()
+        .eq('contract_id', id)
+        .eq('kind', l.kind)
+        .eq('ref_key', String(l.refKey));
+
+      if (error) throw error;
+      continue;
+    }
+
+    let invoiceId: string | null = null;
+
+    // Only Tally links can be assigned to an invoice.
+    if (l.kind === 'tally' && l.invoiceId && l.invoiceId !== 'new') {
+      invoiceId = String(l.invoiceId);
+
+      // Ensure the selected invoice belongs to this contract.
+      const { data: invoice, error: invoiceError } = await db
+        .from('import_contract_invoices')
+        .select('id')
+        .eq('id', invoiceId)
+        .eq('contract_id', id)
+        .maybeSingle();
+
+      if (invoiceError) throw invoiceError;
+
+      if (!invoice) {
+        return NextResponse.json(
+          { error: 'The selected invoice does not belong to this contract.' },
+          { status: 400 }
+        );
       }
     }
+
+    const { error } = await db
+      .from('import_contract_links')
+      .upsert(
+        {
+          contract_id: id,
+          kind: l.kind,
+          ref_key: String(l.refKey),
+          col_key: textOrNull(l.colKey, 40),
+          invoice_id: invoiceId,
+          status: l.status === 'excluded' ? 'excluded' : 'confirmed',
+          decided_by: uid,
+          decided_at: new Date().toISOString(),
+        },
+        { onConflict: 'contract_id,kind,ref_key' }
+      );
+
+    if (error) {
+  if (error.code === '23505') {
+    return NextResponse.json(
+      {
+        error: 'This Tally voucher is already confirmed against another contract.',
+      },
+      { status: 409 }
+    );
+  }
+
+  throw error;
+}
+  }
+}
     if (Array.isArray(b.overrides)) {
       for (const o of b.overrides as any[]) {
         const invoiceId = o.invoiceId && o.invoiceId !== 'new' ? String(o.invoiceId) : null, colKey = textOrNull(o.colKey, 80); if (!colKey) continue;

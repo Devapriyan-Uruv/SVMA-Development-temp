@@ -59,6 +59,17 @@ type Contract = {
   warnings?: string[];
   uncertainFields?: string[];
   missingFields?: string[];
+
+  // Duplicate detection information
+  duplicateOf?: {
+    id: string;
+    importId?: string;
+    contractNumber?: string;
+    supplierName?: string;
+  } | null;
+
+  duplicateInBatch?: string | null;
+
   history?: { action: string; by?: string; at?: string }[];
 };
 
@@ -72,8 +83,17 @@ type ExtractedDocument = {
   warnings?: string[];
   uncertainFields?: string[];
   missingFields?: string[];
-};
 
+  // Duplicate detection information
+  duplicateOf?: {
+    id: string;
+    importId?: string;
+    contractNumber?: string;
+    supplierName?: string;
+  } | null;
+
+  duplicateInBatch?: string | null;
+};
 const EMPTY_FIELDS: ContractFields = {
   contractNumber: "",
   contractDate: "",
@@ -171,9 +191,16 @@ function normalizeContract (raw: any): Contract {
     documentPath: textValue(raw?.documentPath ?? raw?.storage_path),
     createdAt: raw?.createdAt,
     updatedAt: raw?.updatedAt,
-    warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+       warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+
     uncertainFields: Array.isArray(raw?.uncertainFields) ? raw.uncertainFields : [],
+
     missingFields: Array.isArray(raw?.missingFields) ? raw.missingFields : [],
+
+    // Preserve duplicate detection information
+    duplicateOf: raw?.duplicateOf ?? null,
+    duplicateInBatch: raw?.duplicateInBatch ?? null,
+
     history: Array.isArray(raw?.history) ? raw.history : [],
   };
 }
@@ -530,7 +557,7 @@ export default function ImportContractsPage() {
           contractValue: textValue(m.contractValue),
         }));
 
-        return normalizeContract({
+                return normalizeContract({
           id: crypto.randomUUID(),
           status: "Pending Review",
           fields,
@@ -541,6 +568,10 @@ export default function ImportContractsPage() {
           warnings: raw.warnings ?? [],
           uncertainFields: raw.uncertainFields ?? [],
           missingFields: raw.missingFields ?? [],
+
+          // Pass duplicate information from the extraction API
+          duplicateOf: raw.duplicateOf ?? null,
+          duplicateInBatch: raw.duplicateInBatch ?? null,
         });
       });
 
@@ -657,10 +688,21 @@ export default function ImportContractsPage() {
   };
 
   return (
+    
     <main className="icr-page">
+      
       <section className="icr-hero">
+        
         <div className="icr-hero-content">
           <div className="icr-breadcrumb"><Link href="/import" style={{ color: "inherit" }}>Import</Link> <span>/</span> Contracts &amp; Settlement</div>
+          <Link
+  href="/import"
+  className="icr-btn icr-btn-secondary"
+  style={{ marginBottom: 12, width: "fit-content" }}
+>
+  <ArrowLeft size={16} />
+  Back to Import
+</Link>
           <div className="icr-eyebrow"><Sparkles size={15} /> AI-POWERED DOCUMENT WORKFLOW</div>
           <h1>Import Contract Portal</h1>
           <p>Extract, review and manage import contracts in one place.</p>
@@ -825,6 +867,50 @@ export default function ImportContractsPage() {
               <button className="icr-icon-btn" onClick={() => setUploadOpen(false)} disabled={extracting} aria-label="Close"><X size={19} /></button>
             </div>
             <div className="icr-modal-body">
+              {(currentReview?.duplicateOf || currentReview?.duplicateInBatch) && (
+  <div className="icr-alert icr-alert-warning">
+    <AlertCircle size={18} />
+
+    <div>
+      <strong>Possible duplicate contract detected</strong>
+
+      {currentReview.duplicateOf && (
+        <div>
+          <p>
+            An identical contract already exists in the database.
+          </p>
+
+          <p>
+            <strong>Import ID:</strong>{" "}
+            {currentReview.duplicateOf.importId ||
+              currentReview.duplicateOf.id}
+          </p>
+
+          <p>
+            <strong>Contract number:</strong>{" "}
+            {currentReview.duplicateOf.contractNumber || "Not available"}
+          </p>
+
+          <p>
+            <strong>Supplier:</strong>{" "}
+            {currentReview.duplicateOf.supplierName || "Not available"}
+          </p>
+        </div>
+      )}
+
+      {currentReview.duplicateInBatch && (
+        <p>
+          Another uploaded file in this batch has matching business details:
+          {" "}{currentReview.duplicateInBatch}
+        </p>
+      )}
+
+      <p>
+        Please verify this contract before proceeding.
+      </p>
+    </div>
+  </div>
+)}
               <button type="button" className="icr-upload-zone" onClick={() => fileInputRef.current?.click()} disabled={extracting}>
                 <span className="icr-upload-icon"><Upload size={25} /></span>
                 <strong>Choose contract documents</strong>

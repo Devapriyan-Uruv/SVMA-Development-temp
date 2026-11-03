@@ -2,6 +2,10 @@
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  buildContractDuplicatePayload,
+  duplicatePayloadKey,
+} from '@/lib/importContracts/duplicate';
+import {
   moduleAuthorization,
   moduleEditAuthorization,
   IMPORT_VIEW_ROLES,
@@ -254,7 +258,6 @@ export async function POST(req: NextRequest) {
   let createdContractId: string | null = null;
 
   try {
-    // Confirmation requires edit permission for the new module.
     const az = await moduleEditAuthorization(
       MODULE_KEY,
       IMPORT_EDIT_ROLES,
@@ -281,7 +284,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // The UI sends fields nested inside the contract object.
     const fields =
       body.fields &&
       typeof body.fields === 'object' &&
@@ -307,7 +309,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'Contract number and supplier name are required. Please review the fields before confirming.',
+            'Contract number and supplier name are required.',
         },
         { status: 400 },
       );
@@ -331,7 +333,7 @@ export async function POST(req: NextRequest) {
       (totalContractValue !== null && totalContractValue < 0)
     ) {
       return NextResponse.json(
-        { error: 'Quantity, unit price, and total contract value cannot be negative.' },
+        { error: 'Contract values cannot be negative.' },
         { status: 400 },
       );
     }
@@ -347,9 +349,8 @@ export async function POST(req: NextRequest) {
 
     const db = supabaseAdmin();
 
-    // Do not infer a contractual total from quantity × unit price.
-    // A missing stated total is allowed; its validation warning is preserved.
     const now = new Date().toISOString();
+
     const importId = `IMP-${new Date()
       .toISOString()
       .slice(0, 10)
@@ -357,6 +358,19 @@ export async function POST(req: NextRequest) {
       .replace(/-/g, '')
       .slice(0, 8)
       .toUpperCase()}`;
+
+    const additionalDetails =
+      body.additionalDetails &&
+      typeof body.additionalDetails === 'object'
+        ? body.additionalDetails
+        : {};
+
+    // Create a fingerprint from all extracted business details.
+    const duplicatePayload = buildContractDuplicatePayload({
+      fields,
+      materials: materials as Record<string, unknown>[],
+      additionalDetails,
+    });
 
     const contractRow = {
       import_id: importId,
@@ -400,30 +414,36 @@ export async function POST(req: NextRequest) {
       other_conditions: textValue(
         getField(fields, 'otherConditions', 'other_conditions'),
       ),
+
       status: confirm ? 'Confirmed' : 'Pending Review',
+
+      additional_details: additionalDetails,
+      duplicate_payload: duplicatePayload,
+      duplicate_fingerprint: duplicatePayloadKey(duplicatePayload),
+
       original_file_name:
         textValue(body.originalFileName) ??
         textValue(body.fileName) ??
         textValue(body.original_file_name),
+
       storage_path:
         textValue(body.documentPath) ??
         textValue(body.storagePath) ??
         textValue(body.storage_path),
+
       warnings: jsonArray(body.warnings),
       missing_fields:
-        body.missingFields ??
-        body.missing_fields ??
-        [],
+        body.missingFields ?? body.missing_fields ?? [],
       uncertain_fields:
-        body.uncertainFields ??
-        body.uncertain_fields ??
-        [],
+        body.uncertainFields ?? body.uncertain_fields ?? [],
+
       created_by: az.user.id,
       updated_by: az.user.id,
       created_at: now,
       updated_at: now,
     };
 
+    // Database-level duplicate protection.
     const { data: created, error: insertError } = await db
       .from('import_contracts')
       .insert(contractRow)
@@ -435,7 +455,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              'A contract with this supplier and contract number already exists.',
+              'An identical contract already exists. All contract, material, invoice and BOE business details match.',
             code: 'DUPLICATE_CONTRACT',
           },
           { status: 409 },
@@ -447,7 +467,7 @@ export async function POST(req: NextRequest) {
 
     createdContractId = created.id;
 
-    // Save material line items associated with the new contract.
+    // Save material line items.
     if (materials.length > 0) {
       const materialRows = materials.map(
         (item: Record<string, unknown>) => {
@@ -465,6 +485,7 @@ export async function POST(req: NextRequest) {
           const materialUnitPrice = numberValue(
             item.unitPrice ?? item.unit_price,
           );
+
           const materialValue = numberValue(
             item.contractValue ??
               item.totalContractValue ??
@@ -477,7 +498,7 @@ export async function POST(req: NextRequest) {
             (materialValue !== null && materialValue < 0)
           ) {
             throw new Error(
-              'Material quantity, unit price, and contract value cannot be negative.',
+              'Material values cannot be negative.',
             );
           }
 
@@ -495,8 +516,8 @@ export async function POST(req: NextRequest) {
             quantity: materialQuantity,
             uom: materialUom,
             unit_price: materialUnitPrice,
-            currency: textValue(item.currency) ??
-              contractRow.currency,
+            currency:
+              textValue(item.currency) ?? contractRow.currency,
             contract_value: materialValue,
             created_at: now,
             updated_at: now,
@@ -511,7 +532,7 @@ export async function POST(req: NextRequest) {
       if (materialError) throw materialError;
     }
 
-    // Record who created/confirmed the contract.
+    // Record contract creation.
     const { error: auditError } = await db
       .from('import_contract_audit')
       .insert({
@@ -531,9 +552,23 @@ export async function POST(req: NextRequest) {
 
     if (auditError) throw auditError;
 
-    // A confirmed contract becomes an Import record straight away (never blocks the confirmation if that step fails).
     let importRecord: string | null = null;
-    if (confirm) { try { importRecord = (await ensureImportEntry(db, created.id, az.user.id))?.refCode ?? null; } catch (e) { logServerError('import-contracts/create-record', e); } }
+
+    if (confirm) {
+      try {
+        importRecord =
+          (await ensureImportEntry(
+            db,
+            created.id,
+            az.user.id,
+          ))?.refCode ?? null;
+      } catch (e) {
+        logServerError(
+          'import-contracts/create-record',
+          e,
+        );
+      }
+    }
 
     return NextResponse.json(
       {
@@ -547,14 +582,14 @@ export async function POST(req: NextRequest) {
       },
       { status: 201 },
     );
+
   } catch (e) {
     logServerError('import-contracts/create', e);
 
-    // Best-effort cleanup if a related insert failed after the contract
-    // row was created. The foreign-key cascade removes dependent rows.
     if (createdContractId) {
       try {
         const db = supabaseAdmin();
+
         await db
           .from('import_contracts')
           .delete()
@@ -571,7 +606,7 @@ export async function POST(req: NextRequest) {
       {
         error: errorMessage(
           e,
-          'Could not confirm this contract.',
+          'Could not save this contract.',
         ),
       },
       { status: 500 },

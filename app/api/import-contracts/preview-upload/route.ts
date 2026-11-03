@@ -14,7 +14,7 @@ export const runtime = 'nodejs';
 
 // Contracts live under the existing Import module (same access, same roles) — no separate module key.
 const MODULE_KEY = 'import';
-const BUCKET = 'import-contract-documents';
+const BUCKET = 'mport-contract-documents';
 const URL_EXPIRY_SECONDS = 300;
 
 export async function POST(request: NextRequest) {
@@ -42,7 +42,10 @@ export async function POST(request: NextRequest) {
         ? body.storagePath.trim()
         : '';
 
-
+        console.log('[Preview storage details]', {
+  bucket: BUCKET,
+  storagePath,
+});
         console.log('[Preview path check]', {
   hasStoragePath: Boolean(storagePath),
   folderMatchesUser: storagePath.startsWith(`${az.user.id}/`),
