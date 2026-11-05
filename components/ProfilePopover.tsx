@@ -1,7 +1,8 @@
 'use client';
 import {useEffect,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {User,X,Mail,Phone} from 'lucide-react';
+import Link from 'next/link';
+import {User,X,Mail,Phone, Pencil} from 'lucide-react';
 
 // Teams-style "view someone's profile" card — deliberately shows only what
 // /api/directory/[id] returns (name/role/email/phone). Reuses the
@@ -26,6 +27,16 @@ export function ProfilePopover({userId,onClose}:{userId:string|null;onClose:()=>
      <div className="profile-popover-row"><span className="sub"><Mail size={13} style={{verticalAlign:-2,marginRight:5}}/>Email</span><span>{profile.email}</span></div>
      <div className="profile-popover-row"><span className="sub"><Phone size={13} style={{verticalAlign:-2,marginRight:5}}/>Contact</span><span>{profile.phone||'Not shared'}</span></div>
     </div>:<p className="sub">Loading profile…</p>}
+       <div style={{padding:'0 16px 16px'}}>
+    <Link
+      href="/profile"
+      onClick={onClose}
+      className="profile-edit-btn"
+    >
+      <Pencil size={16}/>
+      Edit Profile
+    </Link>
+   </div>
    </div>
   </div>
  </div>,document.body);

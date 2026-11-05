@@ -45,6 +45,6 @@ export function AssistantBubble(){
     <button type="button" onClick={()=>ask(text)} disabled={busy||!text.trim()} aria-label="Ask"><Send size={14}/></button>
    </div>
   </div>:null}
-  <button type="button" className="assistant-launcher" onClick={()=>setOpen(x=>!x)} aria-label="Ask URUV.AI"><span className="assistant-launcher-glow"/><Bot size={22}/></button>
+  <button type="button" className="assistant-launcher" onClick={() => setOpen(x => !x)} aria-label="Open URUVAN AI"><img src="/uruvan-ai-icon.png" alt="URUVAN AI" className="assistant-launcher-image" /></button>
  </div>;
 }

@@ -95,7 +95,7 @@ export async function POST(req:NextRequest){
     if(!az.ok)return NextResponse.json({error:az.status===401?'Not authenticated':'Input access not assigned'},{status:az.status});
     const user=az.user!,db=supabaseAdmin(),productCode=String(b.productCode||'PLANT');
     const [{data:param,error:pe},{data:session,error:se}]=await Promise.all([
-      db.from('parameter_master').select('*,parameter_sections(name,module)').eq('id',b.parameterId).single(),
+      db.from('parameter_master').select('*,parameter_sections(id,name,module)').eq('id',b.parameterId).single(),
       db.from('shift_sessions').select('id,scope,active_products,status,operator_id').eq('id',b.shiftSessionId).single(),
     ]);
     if(pe)throw new Error(errorMessage(pe,'Unable to load the parameter for this entry.'));
@@ -111,7 +111,8 @@ export async function POST(req:NextRequest){
     // target-less reading from ever being labelled Normal/Warning/Critical.
     // The source row stays visible so Admin can configure the missing target.
     if(scope==='quality'&&!String(param.target_text||'').trim())return NextResponse.json({error:`Target configuration is required for ${param.name} before data entry can be submitted. Configure the target in Admin → Parameters & Targets.`,code:'TARGET_REQUIRED'},{status:422});
-
+    // Prevent new readings for sections marked as Not Operating.
+    const sectionId = param.parameter_sections?.id;if(sectionId){const{data:activeSectionStatus,error:sectionStatusError}=await db.from('section_operating_status').select('id').eq('shift_session_id',b.shiftSessionId).eq('section_id',sectionId).eq('scope',scope).eq('product_code',productCode).eq('status','not_operating').maybeSingle();if(sectionStatusError){throw new Error('Unable to verify section operating status.')}if(activeSectionStatus){return NextResponse.json({error:'This section is marked as Not Operating. New readings cannot be submitted.',code:'SECTION_NOT_OPERATING'},{status:409})}}
     if(session.scope!==scope)return NextResponse.json({error:'Shift belongs to a different workspace.'},{status:400});
     if(session.status!=='active')return NextResponse.json({error:'This shift has ended. Start an active shift to enter readings.'},{status:409});
     if(session.operator_id!==user.id&&!az.roles.some((r:string)=>['super_admin','admin','solvent_head','quality_head'].includes(r)))return NextResponse.json({error:'You can only enter readings for your own shift.'},{status:403});

@@ -59,13 +59,9 @@ export default function Home() {
     <section className="welcome-strip">
       <div className="welcome-content">
         <span className="eyebrow"><Sparkles size={14} /> YOUR DAILY WORKSPACE</span>
-        <h1>{greeting || "Welcome"}{me ? `, ${name}` : ""}<span className="welcome-wave"> 👋</span></h1>
+        <h1>{greeting || "Welcome"}{me ? `, ${name}` : ""}</h1>
         <p>Everything you need for today’s operations, in one place.</p>
-        <div className="welcome-highlights">
-          <div className="welcome-highlight"><span className="welcome-highlight-icon"><TrendingUp size={21} /></span><span><b>Monitor operations</b><small>Real-time insights</small></span></div>
-          <div className="welcome-highlight"><span className="welcome-highlight-icon"><Settings size={21} /></span><span><b>Improve efficiency</b><small>With AI-driven analytics</small></span></div>
-          <div className="welcome-highlight"><span className="welcome-highlight-icon welcome-green-icon"><ShieldCheck size={21} /></span><span><b>Make faster decisions</b><small>All in one platform</small></span></div>
-        </div>
+        
       </div>
       <div className="welcome-message-card"><b>Smarter Operations<br />for a Better Tomorrow</b><span /></div>
     </section>

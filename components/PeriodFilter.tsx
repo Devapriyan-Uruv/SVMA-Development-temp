@@ -64,16 +64,13 @@ export function PeriodFilter({period,onChange,liveSessions,products,onStopped}:{
 
  return <div className="period-filter-bar-sleek" ref={ref}>
   <div className="period-filter-status">
-   <span className={`pill ${viewingLive?'ok':'info'}`}>
-    <CalendarClock size={12}/> {viewingLive?'Live shift':`${period.date}${period.shiftId?` • Shift ${period.shiftId}`:' • all shifts'}`}
-   </span>
-   {entries.length?entries.map((e,i)=>
-    <span key={i} className="pill ok live-now-chip">
-     <i className="live-dot"/> {e.scope.toUpperCase()} LIVE: {liveShiftText(e.shift)}
-     {canStop()?<button type="button" className="live-stop-btn" title="Stop this shift" onClick={()=>{setStopping({scope:e.scope,id:e.shift.id,label:e.scope});setStopError('')}}><Square size={10}/> Stop</button>:null}
-    </span>
-   ):<span className="pill neutral">No shift currently live</span>}
-  </div>
+  <span className={`pill ${viewingLive ? 'ok' : 'info'}`}>
+    <CalendarClock size={12} />
+    {viewingLive
+      ? 'Live shift'
+      : `${period.date}${period.shiftId ? ` • Shift ${period.shiftId}` : ' • all shifts'}`}
+  </span>
+</div>
 
   <div style={{position:'absolute',top:0,right:0}}>
    <button type="button" className="filter-icon-btn" onClick={()=>setOpen(x=>!x)} aria-label="Filters">

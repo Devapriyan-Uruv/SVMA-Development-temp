@@ -26,10 +26,14 @@ type Param={
   sample_frequency?:string|null;
   result_latency_minutes?:number|null;
   options?:unknown;
-  parameter_sections:{name:string;module:string}|{name:string;module:string}[]|null;
+  parameter_sections:
+  | {id:number;name:string;module:string}
+  | {id:number;name:string;module:string}[]
+  | null;
   sort_order?: number | null;
 };
 type Entry={id:string;parameter_id:number;slot_start:string|null;product_code?:string|null;value_numeric:number|null;value_text:string|null;comments?:string|null;validation_status?:string|null;timeliness_status?:string|null;server_timestamp?:string|null;amended_value_numeric?:number|null;amended_value_text?:string|null;amended_at?:string|null;result_state?:'result'|'na'|null;na_reason?:string|null;na_note?:string|null};
+type SectionOperatingStatus = { id: string; section_id: number; shift_session_id: string; scope: 'solvent' | 'quality'; product_code: string; status: 'not_operating' | 'reversed'; marked_by: string; marked_at: string; mark_reason: string; mark_note?: string | null; reversed_by?: string | null; reversed_at?: string | null; reversal_reason?: string | null; };
 type Session={id:string;scheduled_start:string;scheduled_end:string;operational_date:string;active_products?:string[];shift_master?:{name:string};entry_person_name?:string|null};
 type SampleTask={id:string;parameter_id:number;product_code:string;sample_due_at:string;sample_received_at:string|null;result_due_at:string|null;result_submitted_at:string|null;status:string;parameter_master?:{name:string}};
 type Props={kind:'hourly'|'inspection'|'boiler'|'quality'|'plant';mode?:'hourly'|'inspection';scope?:Scope;title:string;subtitle?:string};
@@ -41,6 +45,11 @@ const AMEND_ROLES_QUALITY=['quality_head','super_admin','admin'];
 const NA_REASONS=['Sample not received','Plant stopped','Material not running','Lab equipment unavailable','Insufficient sample','Test not applicable','Other'];
 
 function sectionOf(p:Param){const r=p.parameter_sections;return Array.isArray(r)?r[0]?.name||'Other':r?.name||'Other'}
+function sectionIdOf(p:Param):number|null {
+  const r=p.parameter_sections;
+  const id=Array.isArray(r)?r[0]?.id:r?.id;
+  return typeof id==='number'?id:null;
+}
 function moduleOf(p:Param){const r=p.parameter_sections;return Array.isArray(r)?r[0]?.module:r?.module}
 function slugify(s:string){return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'section'}
 function slots(s:Session){
@@ -82,10 +91,43 @@ function dueAtHour(p:Param,hour:number){if(p.frequency==='hourly')return true;if
 function queueOffline(payload:unknown){try{const q=JSON.parse(localStorage.getItem(OFFLINE_QUEUE)||'[]');q.push(payload);localStorage.setItem(OFFLINE_QUEUE,JSON.stringify(q))}catch{}}
 async function flushOffline(){
   if(typeof window==='undefined'||!navigator.onLine)return 0;
-  let q:unknown[]=[];try{q=JSON.parse(localStorage.getItem(OFFLINE_QUEUE)||'[]')}catch{}
-  const remaining:unknown[]=[];let synced=0;
-  for(const payload of q){try{const r=await fetch('/api/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});if(r.ok||r.status===409)synced++;else remaining.push(payload)}catch{remaining.push(payload)}}
-  localStorage.setItem(OFFLINE_QUEUE,JSON.stringify(remaining));return synced;
+
+  let q:unknown[]=[];
+  try{
+    q=JSON.parse(localStorage.getItem(OFFLINE_QUEUE)||'[]');
+  }catch{}
+
+  const remaining:unknown[]=[];
+  let synced=0;
+
+  for(const payload of q){
+    try{
+      const r=await fetch('/api/entries',{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+
+      if(r.ok){
+        synced++;
+      }else if(r.status===409){
+        const result=await r.clone().json().catch(()=>({}));
+
+        if(result.code==='ENTRY_LOCKED'){
+          synced++;
+        }else{
+          remaining.push(payload);
+        }
+      }else{
+        remaining.push(payload);
+      }
+    }catch{
+      remaining.push(payload);
+    }
+  }
+
+  localStorage.setItem(OFFLINE_QUEUE,JSON.stringify(remaining));
+  return synced;
 }
 
 export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:Props){
@@ -109,6 +151,17 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
   const [session,setSession]=useState<Session|null>(null);
   const [params,setParams]=useState<Param[]>([]);
   const [entries,setEntries]=useState<Entry[]>([]);
+  const [sectionStatuses,setSectionStatuses]=useState<SectionOperatingStatus[]>([]);
+  const [sectionMarkTarget,setSectionMarkTarget]=useState<{
+  sectionId:number;
+  sectionName:string;
+} | null>(null);
+
+const [sectionMarkReason,setSectionMarkReason]=useState('');
+const [sectionMarkNote,setSectionMarkNote]=useState('');
+const [sectionStatusBusy,setSectionStatusBusy]=useState(false);
+const [sectionStatusError,setSectionStatusError]=useState('');
+const [undoTarget,setUndoTarget]=useState<SectionOperatingStatus|null>(null);
   const [product,setProduct]=useState('');
   const [section,setSection]=useState('');
   const [group,setGroup]=useState('');
@@ -162,6 +215,67 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
   // this device's own real offline queue (svma-offline-entry-queue), and a
   // Super Admin's preview session has no business touching it at all, not
   // even a no-op rewrite.
+  // Load active section-level Not Operating statuses.
+useEffect(() => {
+  if (!session?.id || (!plantWide && !product)) {
+    setSectionStatuses([]);
+    return;
+  }
+
+  let cancelled = false;
+
+  async function loadSectionStatuses() {
+    try {
+      const productCode = plantWide ? 'PLANT' : product;
+
+      const qs = new URLSearchParams({
+        scope,
+        shiftSessionId: session!.id,
+        productCode,
+      });
+
+      const response = await fetch(
+        `/api/section-operating-status?${qs.toString()}`,
+        { cache: 'no-store' }
+      );
+
+      const data = await response.json();
+      
+      console.log(
+  'CLIENT RECEIVED SECTION STATUSES:',
+  JSON.stringify(data.statuses || [], null, 2)
+);
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to load section statuses.');
+      }
+
+      if (!cancelled) {
+        console.log(
+  'FRONTEND RECEIVED SECTION STATUSES:',
+  JSON.stringify(data.statuses, null, 2)
+);
+
+setSectionStatuses(data.statuses || []);
+      }
+    } catch (error) {
+      if (!cancelled) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : 'Unable to load section statuses.'
+        );
+      }
+    }
+  }
+
+  void loadSectionStatuses(
+    
+  );
+
+  return () => {
+    cancelled = true;
+  };
+}, [session?.id, scope, product, plantWide]);
   useEffect(()=>{if(viewAsUserId)return;const online=()=>void flushOffline().then(n=>{if(n){setMessage(`${n} offline entries synced.`);setNotice({title:'Readings synced',message:`${n} queued readings are now confirmed in the saved records.`,tone:'success'});window.dispatchEvent(new Event('svma-readings-saved'))}});window.addEventListener('online',online);void flushOffline();return()=>window.removeEventListener('online',online)},[viewAsUserId]);
 
   // Section U/V/W/X/Y: for the Quality workspace only, load the expected
@@ -222,12 +336,37 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
   // per-section Save. `params` already arrives sorted by
   // parameter_sections.sort_order (the original Excel row numbers), so
   // first-appearance order is correct without any extra sorting here.
-  const plantSectionOrder=useMemo(()=>{
-    if(kind!=='plant')return [] as {name:string;rows:Param[]}[];
-    const order:string[]=[],bySection:Record<string,Param[]>={};
-    for(const p of params){const s=sectionOf(p);if(!bySection[s]){bySection[s]=[];order.push(s)}bySection[s].push(p)}
-    return order.map(name=>({name,rows:bySection[name]}));
-  },[params,kind]);
+  const plantSectionOrder = useMemo(() => {
+  if (kind !== 'plant') {
+    return [] as { id: number; name: string; rows: Param[] }[];
+  }
+
+  const order: number[] = [];
+  const bySection: Record<
+    number,
+    { id: number; name: string; rows: Param[] }
+  > = {};
+
+  for (const p of params) {
+    const id = sectionIdOf(p);
+
+    if (id === null) continue;
+
+    if (!bySection[id]) {
+      bySection[id] = {
+        id,
+        name: sectionOf(p),
+        rows: [],
+      };
+
+      order.push(id);
+    }
+
+    bySection[id].rows.push(p);
+  }
+
+  return order.map(id => bySection[id]);
+}, [params, kind]);
   const plantPages=useMemo(()=>plantSectionOrder.map(sec=>[sec]),[plantSectionOrder]);
   useEffect(()=>{setPlantPage(0);setUnlockedCells(new Set())},[params.length,kind]);
   useEffect(()=>{if(!pendingScrollTo)return;const id=requestAnimationFrame(()=>{document.getElementById(pendingScrollTo)?.scrollIntoView({behavior:'smooth',block:'start'});setPendingScrollTo('')});return()=>cancelAnimationFrame(id)},[pendingScrollTo,plantPage]);
@@ -255,11 +394,132 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
   const dueRows=plantGrid?params:(actualMode==='hourly'?(qualityGrid?visible:visible.filter(p=>dueAtHour(p,hour))):visible);
   const currentRows=qualityGrid?visible:dueRows;
   const relevantIds=new Set(params.map(p=>p.id));
+  console.log('===== ENTRY FILTER DIAGNOSTIC =====');
+console.log('Total entries:', entries.length);
+console.log('Active product:', activeProduct);
+console.log('Relevant IDs count:', relevantIds.size);
+
+console.log(
+  'Entry product codes:',
+  [...new Set(entries.map(e => e.product_code))]
+);
+
+console.log(
+  'Entry parameter IDs sample:',
+  entries.slice(0, 15).map(e => e.parameter_id)
+);
+
+console.log(
+  'Entries matching product:',
+  entries.filter(e => (e.product_code || 'PLANT') === activeProduct).length
+);
+
+console.log(
+  'Entries matching relevant IDs:',
+  entries.filter(e => relevantIds.has(e.parameter_id)).length
+);
+
+console.log('===================================');
   const productEntries=entries.filter(e=>(e.product_code||'PLANT')===activeProduct&&relevantIds.has(e.parameter_id));
   // once_per_shift/daily/first_shift_only/weekly parameters are optional
   // in both grids — never counted toward "expected", so this bar can read
   // 100% without them. Only genuinely hourly-cadence parameters count.
-  const totalExpected=params.reduce((n,p)=>n+scheduleCount(p,hs.length),0),totalDone=productEntries.length,pct=totalExpected?Math.min(100,Math.round(totalDone/totalExpected*100)):0;
+  const markedSectionIds = new Set(
+  sectionStatuses
+    .filter(
+      status =>
+        status.product_code === activeProduct &&
+        status.status === 'not_operating'
+    )
+    .map(status => status.section_id)
+);
+console.log('ACTIVE PRODUCT:', activeProduct);
+console.log('SECTION STATUSES:', sectionStatuses);
+console.log('MARKED SECTION IDS:', [...markedSectionIds]);
+console.log(
+  'PARAMETER SECTION IDS:',
+  params.map(p => ({
+    parameter: p.name,
+    sectionId: sectionIdOf(p)
+  }))
+);
+
+
+const totalExpected = params.reduce(
+  (total, p) => total + scheduleCount(p, hs.length),
+  0
+);
+const notOperatingCompleted = params.reduce(
+  (total, p) => {
+    const sectionId = sectionIdOf(p);
+
+    return sectionId !== null && markedSectionIds.has(sectionId)
+      ? total + scheduleCount(p, hs.length)
+      : total;
+  },
+  0
+);
+console.log('===== PROGRESS DIAGNOSTIC =====');
+console.log('Active product:', activeProduct);
+console.log('Total parameters:', params.length);
+console.log('Active marked IDs:', [...markedSectionIds]);
+
+console.table(
+  [...markedSectionIds].map(id => {
+    const sectionParams = params.filter(p => sectionIdOf(p) === id);
+
+    return {
+      sectionId: id,
+      parameterCount: sectionParams.length,
+      expectedCount: sectionParams.reduce(
+        (sum, p) => sum + scheduleCount(p, hs.length),
+        0
+      ),
+      excluded: markedSectionIds.has(id)
+    };
+  })
+);
+
+console.log('Total expected after exclusion:', totalExpected);
+console.log('==============================');
+const activeParameterIds = new Set(
+  params
+    .filter(p => {
+      const sectionId = sectionIdOf(p);
+      return sectionId === null || !markedSectionIds.has(sectionId);
+    })
+    .map(p => p.id)
+);
+console.log('===== COMPLETION DIAGNOSTIC =====');
+
+console.log('Product entries count:', productEntries.length);
+
+console.log(
+  'Product entry parameter IDs:',
+  productEntries.slice(0, 15).map(e => e.parameter_id)
+);
+
+console.log('Active parameter IDs count:', activeParameterIds.size);
+
+console.log(
+  'Active parameter IDs sample:',
+  [...activeParameterIds].slice(0, 15)
+);
+
+console.log(
+  'Matching entries:',
+  productEntries.filter(e => activeParameterIds.has(e.parameter_id)).length
+);
+
+console.log('=================================');
+ const actualCompleted = productEntries.filter(
+  e => activeParameterIds.has(e.parameter_id)
+).length;
+
+const totalDone = actualCompleted + notOperatingCompleted;
+  const pct = totalExpected
+    ? Math.min(100, Math.round(totalDone / totalExpected * 100))
+    : 0;
   const naCount=productEntries.filter(e=>e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA').length;
   const exceptionCount=productEntries.filter(e=>['warning','critical'].includes(String(e.validation_status))).length;
   const missingCount=Math.max(0,totalExpected-totalDone);
@@ -267,6 +527,8 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
   const targetGapCount=currentRows.filter(p=>!String(p.target_text||'').trim()).length;
 
   async function reload(){const r=await fetch(`/api/entries?shiftSessionId=${active.id}&scope=${scope}`,{cache:'no-store'}),j=await r.json();setEntries(j.entries||[])}
+  async function submitSectionMark(){if(!sectionMarkTarget||!sectionMarkReason.trim()){setSectionStatusError('Please provide a reason.');return}if(sectionMarkReason.trim()==='Other'&&!sectionMarkNote.trim()){setSectionStatusError('Please provide a note for Other.');return}setSectionStatusBusy(true);setSectionStatusError('');try{const response=await fetch('/api/section-operating-status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'mark',scope,shiftSessionId:active.id,productCode:activeProduct,sectionId:sectionMarkTarget.sectionId,reason:sectionMarkReason.trim(),note:sectionMarkNote.trim()})});const data=await response.json();if(!response.ok){throw new Error(data.error||'Unable to mark section.')}setSectionStatuses(previous=>[data.status,...previous.filter(item=>item.id!==data.status.id)]);const sectionParameterIds=params.filter(p=>sectionIdOf(p)===sectionMarkTarget.sectionId).map(p=>p.id);const sectionKeys=new Set(sectionParameterIds.flatMap(id=>hs.map(slot=>entryKey(id,slot.start,activeProduct))));setValues(previous=>Object.fromEntries(Object.entries(previous).filter(([key])=>!sectionKeys.has(key))));setComments(previous=>Object.fromEntries(Object.entries(previous).filter(([key])=>!sectionKeys.has(key))));setNaDrafts(previous=>Object.fromEntries(Object.entries(previous).filter(([key])=>!sectionKeys.has(key))));setSectionMarkTarget(null);setSectionMarkReason('');setSectionMarkNote('')}catch(error){setSectionStatusError(error instanceof Error?error.message:'Unable to mark section.')}finally{setSectionStatusBusy(false)}}
+  async function submitSectionUndo(reason:string){if(!undoTarget||!reason.trim()){setSectionStatusError('Please provide a reversal reason.');return}setSectionStatusBusy(true);setSectionStatusError('');try{const response=await fetch('/api/section-operating-status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'undo',scope,shiftSessionId:active.id,productCode:activeProduct,statusId:undoTarget.id,reason:reason.trim()})});const data=await response.json();if(!response.ok){throw new Error(data.error||'Unable to reverse section mark.')}setSectionStatuses(previous=>previous.filter(item=>item.id!==undoTarget.id));setUndoTarget(null)}catch(error){setSectionStatusError(error instanceof Error?error.message:'Unable to reverse section mark.')}finally{setSectionStatusBusy(false)}}
   function rowSlot(p:Param){if(qualityGrid||plantGrid)return selected?.start||active.scheduled_start;return actualMode==='inspection'||['once_per_shift','daily','first_shift_only','weekly'].includes(p.frequency)?active.scheduled_start:selected?.start||active.scheduled_start}
   function rowDue(p:Param){if((qualityGrid||plantGrid)&&selected){if(p.result_latency_minutes)return new Date(new Date(selected.start).getTime()+Number(p.result_latency_minutes)*60000).toISOString();return selected.end}if(actualMode==='inspection'||['once_per_shift','daily','first_shift_only','weekly'].includes(p.frequency))return active.scheduled_end;if(scope==='quality'&&p.result_latency_minutes&&selected)return new Date(new Date(selected.start).getTime()+Number(p.result_latency_minutes)*60000).toISOString();return selected?.end||active.scheduled_end}
 
@@ -279,6 +541,14 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
     try{
       let n=0,warnings=0,critical=0,locked=0,queued=0;let saveWarnings:string[]=[];
       for(const p of rows){
+        if (
+  sectionStatuses.some(
+    status =>
+      status.section_id === sectionIdOf(p) &&
+      status.product_code === activeProduct &&
+      status.status === 'not_operating'
+  )
+) continue;
         if(scope==='quality'&&!String(p.target_text||'').trim())continue;
         const slotStart=rowSlot(p),slotEnd=actualMode==='inspection'?active.scheduled_end:selected?.end||active.scheduled_end,k=entryKey(p.id,slotStart,activeProduct),value=values[k],na=naDrafts[k];
         if(saved.has(k))continue;
@@ -288,7 +558,19 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
         const payload={scope,productCode:activeProduct,shiftSessionId:active.id,parameterId:p.id,slotStart,slotEnd,dueAt:rowDue(p),value:na?.reason?'':value,isNA:!!na?.reason,naReason:na?.reason||null,naNote:na?.note||null,comments:comments[k]||'',clientTimestamp:new Date().toISOString()};
         try{
           const r=await fetch('/api/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}),j=await r.json();
-          if(r.status===409){locked++;continue} // already locked by a concurrent submit — not an error
+          if (r.status === 409) {
+            if (j.code === 'ENTRY_LOCKED') {
+              locked++;
+              continue;
+            }
+
+            throw new Error(
+              j.error ||
+              (j.code === 'SECTION_NOT_OPERATING'
+                ? 'This section is marked Not Operating. The reading was not saved.'
+                : 'The reading could not be saved.')
+            );
+          }
           if(!r.ok)throw new Error(j.error);
           n++;if(j.warnings?.length)saveWarnings.push(...j.warnings);
           if(j.validation==='warning')warnings++;if(j.validation==='critical')critical++;
@@ -333,6 +615,14 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
       // than one.
       let savedSlotStart:string|null=null,savedSlotEnd:string|null=null;
       for(const p of rows){
+        if (
+  sectionStatuses.some(
+    status =>
+      status.section_id === sectionIdOf(p) &&
+      status.product_code === activeProduct &&
+      status.status === 'not_operating'
+  )
+) continue;
         for(const slot of hs){
           const k=entryKey(p.id,slot.start,activeProduct),value=values[k],na=naDrafts[k];
           if(saved.has(k))continue;
@@ -343,7 +633,19 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
           const payload={scope,productCode:activeProduct,shiftSessionId:active.id,parameterId:p.id,slotStart:slot.start,slotEnd:slot.end,dueAt,value:na?.reason?'':value,isNA:!!na?.reason,naReason:na?.reason||null,naNote:na?.note||null,comments:comments[k]||'',clientTimestamp:new Date().toISOString()};
           try{
             const r=await fetch('/api/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}),j=await r.json();
-            if(r.status===409){locked++;continue} // already locked by a concurrent submit — not an error
+            if (r.status === 409) {
+              if (j.code === 'ENTRY_LOCKED') {
+                locked++;
+                continue;
+              }
+
+              throw new Error(
+                j.error ||
+                (j.code === 'SECTION_NOT_OPERATING'
+                  ? 'This section is marked Not Operating. The reading was not saved.'
+                  : 'The reading could not be saved.')
+              );
+            }
             if(!r.ok)throw new Error(j.error);
             n++;if(j.warnings?.length)saveWarnings.push(...j.warnings);
             if(j.validation==='warning')warnings++;if(j.validation==='critical')critical++;
@@ -398,20 +700,110 @@ export function ParameterEntryBoard({kind,mode,scope='solvent',title,subtitle}:P
 
     {actualMode==='hourly'?<section className="source-hour-selector"><div className="source-control-label"><b>Select hour</b><span>{(qualityGrid||plantGrid)?'Choose the hour to enter readings.':'Parameters due for the selected interval are shown.'}</span></div><div className="source-hour-buttons">{hs.map((s,i)=>{const count=entries.filter(e=>(e.product_code||'PLANT')===activeProduct&&e.slot_start===s.start&&relevantIds.has(e.parameter_id)).length;return <button key={s.start} className={`${i===hour?'active':''} ${count?'done':''}`} onClick={()=>setHour(i)}><b>{s.label}</b><small>{count?`${count} saved`:i===hour?'Current':'Pending'}</small></button>})}</div></section>:null}
 
-    {sections.length>1&&!plantGrid?<section className="source-category-wrap"><div className="source-control-label"><b>Category</b><span>Order and names are retained from the source sheet.</span></div><div className="source-category-tabs">{sections.map(s=><button key={s} className={section===s?'active':''} onClick={()=>{setSection(s);setGroup('')}}><SectionIcon name={s}/>{s}</button>)}</div></section>:null}
+
 
     {scope!=='quality'&&!plantGrid&&groups.length?<section className="source-group-wrap"><div className="source-control-label"><b>Test group</b></div><div className="source-category-tabs compact"><button className={!group?'active':''} onClick={()=>setGroup('')}>All parameters</button>{groups.map(g=><button key={g} className={group===g?'active':''} onClick={()=>setGroup(g)}>{g}</button>)}</div></section>:null}
 
     {!plantGrid?<section className="source-form-card">
-      <header className="source-form-title"><div><span>{qualityGrid?`Approved ${productName(activeProduct)} QC sheet — editing ${selected?.label||'selected hour'}`:actualMode==='hourly'?(selected?.label||'Selected hour'):'Once per shift'}</span><h2>{qualityGrid?'All product groups':(group||section)}</h2></div><div className="source-legend"><span><i className="dot normal"/>Normal</span><span><i className="dot warning"/>Warning</span><span><i className="dot critical"/>Critical</span></div></header>
+      <header className="source-form-title"><div><span>{qualityGrid?`Approved ${productName(activeProduct)} QC sheet — editing ${selected?.label||'selected hour'}`:actualMode==='hourly'?(selected?.label||'Selected hour'):'Once per shift'}</span><h2>{qualityGrid?'All product groups':(group||section)}</h2></div>{scope==='quality'&&(()=>{const sectionId=currentRows.length?sectionIdOf(currentRows[0]):null;const activeStatus=sectionId===null?undefined:sectionStatuses.find(status=>status.section_id===sectionId&&status.product_code===activeProduct&&status.status==='not_operating');if(activeStatus){return(<div className="section-status-actions"><span className="section-not-operating-badge">Not Operating</span>{roles.includes('super_admin')&&!viewAsUserId&&<button type="button" onClick={()=>{setUndoTarget(activeStatus);setSectionStatusError('');setSectionMarkReason('')}}>Undo</button>}</div>)}return(<button type="button" className="section-not-operating-button" disabled={!!viewAsUserId} onClick={()=>{if(sectionId!==null){setSectionMarkTarget({sectionId,sectionName:section});setSectionStatusError('')}}}>Not Operating</button>)})()}<div className="source-legend"><span><i className="dot normal"/>Normal</span><span><i className="dot warning"/>Warning</span><span><i className="dot critical"/>Critical</span></div></header>
       {targetGapCount?<div className="notice danger target-gate-notice" style={{margin:'14px 16px 0'}}><b>Target configuration required.</b> {targetGapCount} parameter{targetGapCount===1?'':'s'} in this view {targetGapCount===1?'has':'have'} no approved target. {scope==='quality'?'Add the target before entering those results.':'You can record these readings. They will be marked Target missing, with no pass/fail judgement.'}</div>:null}
-      {currentRows.length?(qualityGrid?<QualityGridTable rows={currentRows} session={active} hourSlots={hs} activeHour={hour} product={activeProduct} entries={entries} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} naDrafts={naDrafts} setNaDrafts={setNaDrafts} canAmend={canAmend} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})} onJumpHour={setHour}/>:<SourceTable rows={currentRows} session={active} selected={selected} product={activeProduct} mode={actualMode} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} canAmend={canAmend} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})}/>):<div className="source-empty"><Clock3/><b>No entries due in this interval</b><span>Select another hour or category.</span></div>}
+      {currentRows.length?(qualityGrid?<QualityGridTable rows={currentRows} session={active} hourSlots={hs} activeHour={hour} product={activeProduct} entries={entries} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} naDrafts={naDrafts} setNaDrafts={setNaDrafts} canAmend={canAmend} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})} onJumpHour={setHour} sectionStatuses={sectionStatuses}/>:<SourceTable rows={currentRows} session={active} selected={selected} product={activeProduct} mode={actualMode} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} canAmend={canAmend} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})}/>):<div className="source-empty"><Clock3/><b>No entries due in this interval</b><span>Select another hour or category.</span></div>}
       {message?<div className={`notice ${/fail|error|missing/i.test(message)?'danger':''}`} style={{margin:'14px 16px 0'}}>{message}</div>:null}
       <footer className="source-form-actions"><div><b>{productName(activeProduct)} • {qualityGrid?'Complete QC sheet':(group||section)}</b><span>{actualMode==='hourly'?`Saving hour: ${selected?.label||''}`:'One-time shift entry'}</span></div><div className="action-row"><button className="btn btn-secondary" disabled={aiBusy||!!viewAsUserId} onClick={()=>void ai(false)}>{aiBusy?'Analysing… (up to a minute)':'AI Insight'}</button><button className="btn btn-primary" disabled={saving||!dueRows.length||!!viewAsUserId} onClick={()=>saveRows(dueRows)}>{saving?'Saving…':'Save readings'}</button></div></footer>
-    </section>:<PlantEntryPages plantPages={plantPages} plantPage={plantPage} onJumpToSection={jumpToSection} onPrevPage={()=>setPlantPage(p=>Math.max(0,p-1))} onNextPage={()=>setPlantPage(p=>Math.min(plantPages.length-1,p+1))} hourSlots={hs} activeHour={hour} product={activeProduct} entries={entries} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} naDrafts={naDrafts} setNaDrafts={setNaDrafts} unlockedCells={unlockedCells} setUnlockedCells={setUnlockedCells} canAmend={canAmend} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})} message={message} aiBusy={aiBusy} saving={saving} readOnly={!!viewAsUserId} onAI={()=>void ai(false)} onSave={rows=>void savePlantRows(rows)}/>}
+    </section>:<PlantEntryPages plantPages={plantPages} plantPage={plantPage} onJumpToSection={jumpToSection} onPrevPage={()=>setPlantPage(p=>Math.max(0,p-1))} onNextPage={()=>setPlantPage(p=>Math.min(plantPages.length-1,p+1))} hourSlots={hs} activeHour={hour} product={activeProduct} entries={entries} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} naDrafts={naDrafts} setNaDrafts={setNaDrafts} unlockedCells={unlockedCells} setUnlockedCells={setUnlockedCells} canAmend={canAmend} sectionStatuses={sectionStatuses} canUndoSectionStatus={roles.includes('super_admin') && !viewAsUserId} onMarkSection={sec=>setSectionMarkTarget({sectionId:sec.id,sectionName:sec.name})} onUndoSection={status=>{setUndoTarget(status);setSectionStatusError('');setSectionMarkReason('')}} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})} message={message} aiBusy={aiBusy} saving={saving} readOnly={!!viewAsUserId} onAI={()=>void ai(false)} onSave={rows=>void savePlantRows(rows)}/>}
 
     {report?<section className="ai-mini-card" style={{marginTop:14}}><div className="ai-mini-title"><Sparkles size={17}/><b>Immediate AI observation</b></div><ReportView report={report}/></section>:null}
+    <Drawer
+  open={!!sectionMarkTarget}
+  onClose={() => {
+    setSectionMarkTarget(null);
+    setSectionMarkReason('');
+    setSectionMarkNote('');
+    setSectionStatusError('');
+  }}
+  title="Mark Section as Not Operating"
+  subtitle={sectionMarkTarget?.sectionName || ''}
+>
+  <div className="drawer-form">
+    <label className="field">
+      <span>Reason (required)</span>
+      <select
+        value={sectionMarkReason}
+        onChange={e => setSectionMarkReason(e.target.value)}
+      >
+        <option value="">Select reason</option>
+        <option value="Plant stopped">Plant stopped</option>
+        <option value="Material not running">Material not running</option>
+        <option value="Lab equipment unavailable">Equipment unavailable</option>
+        <option value="Other">Other</option>
+      </select>
+    </label>
 
+    {sectionMarkReason === 'Other' && (
+      <label className="field">
+        <span>Additional note (required)</span>
+        <textarea
+          rows={3}
+          value={sectionMarkNote}
+          onChange={e => setSectionMarkNote(e.target.value)}
+          placeholder="Explain why this section is not operating."
+        />
+      </label>
+    )}
+
+    {sectionStatusError && (
+      <div className="notice danger">{sectionStatusError}</div>
+    )}
+
+    <button
+      type="button"
+      className="btn btn-primary"
+      disabled={
+        sectionStatusBusy ||
+        !sectionMarkReason ||
+        (sectionMarkReason === 'Other' && !sectionMarkNote.trim())
+      }
+      onClick={() => void submitSectionMark()}
+    >
+      {sectionStatusBusy ? 'Saving…' : 'Confirm Not Operating'}
+    </button>
+  </div>
+</Drawer>
+<Drawer
+  open={!!undoTarget}
+  onClose={() => {
+    setUndoTarget(null);
+    setSectionMarkReason('');
+    setSectionStatusError('');
+  }}
+  title="Undo Not Operating Status"
+  subtitle="Super Admin reversal — the original mark will remain in the audit history."
+>
+  <div className="drawer-form">
+    <label className="field">
+      <span>Reversal reason (required)</span>
+      <textarea
+        rows={3}
+        value={sectionMarkReason}
+        onChange={e => setSectionMarkReason(e.target.value)}
+        placeholder="Explain why this section status is being reversed."
+      />
+    </label>
+
+    {sectionStatusError && (
+      <div className="notice danger">{sectionStatusError}</div>
+    )}
+
+    <button
+      type="button"
+      className="btn btn-primary"
+      disabled={sectionStatusBusy || !sectionMarkReason.trim()}
+      onClick={() => void submitSectionUndo(sectionMarkReason)}
+    >
+      {sectionStatusBusy ? 'Reversing…' : 'Confirm Undo'}
+    </button>
+  </div>
+</Drawer>
     <AmendDrawer entry={amendEntry} onClose={()=>setAmendEntry(null)} onSaved={()=>{setAmendEntry(null);void reload()}}/>
   </div>;
 }
@@ -458,7 +850,7 @@ function useActiveHourScroll(activeHour:number){
   },[activeHour]);
   return ref;
 }
-function QualityGridTable({rows,session,hourSlots,activeHour,product,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,canAmend,onRequestAmend,onJumpHour}:{rows:Param[];session:Session;hourSlots:HourSlot[];activeHour:number;product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void;onJumpHour:(i:number)=>void}){
+function QualityGridTable({rows,session,hourSlots,activeHour,product,sectionStatuses,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,canAmend,onRequestAmend,onJumpHour}:{rows:Param[];session:Session;hourSlots:HourSlot[];activeHour:number;sectionStatuses: SectionOperatingStatus[];product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void;onJumpHour:(i:number)=>void}){
   const [naOpen,setNaOpen]=useState<string>('');
   const scrollRef=useActiveHourScroll(activeHour);
   function beginNA(k:string){setNaDrafts(x=>({...x,[k]:x[k]||{reason:'',note:''}}));setNaOpen(k)}
@@ -473,6 +865,15 @@ function QualityGridTable({rows,session,hourSlots,activeHour,product,entries,sav
     const min=numeric.length?Math.min(...numeric):null,max=numeric.length?Math.max(...numeric):null,avg=numeric.length?numeric.reduce((a,b)=>a+b,0)/numeric.length:null;
     const lastComment=[...shiftEntries].reverse().find(e=>e.comments&&e.comments.trim())?.comments||'';
     const worstStatus=shiftEntries.reduce((w,e)=>{const order:Record<string,number>={critical:4,warning:3,target_missing:2,na:1,normal:0};return (order[e.validation_status||'']||0)>(order[w]||0)?(e.validation_status||''):w},'');
+    const sectionId = sectionIdOf(p);
+
+const sectionNotOperating = sectionStatuses.some(
+  status =>
+    status.section_id === sectionId &&
+    status.product_code === product &&
+    status.status === 'not_operating'
+);
+    
     return <tr key={`${p.id}-grid`} className={`source-row ${worstStatus}`}>
       <td className="source-serial source-col-no">{p.source_serial||'—'}</td>
       <td className="qg-group-col"><b>{p.source_group||'—'}</b></td>
@@ -481,16 +882,35 @@ function QualityGridTable({rows,session,hourSlots,activeHour,product,entries,sav
       <td className="qg-frequency-col"><span className="source-param-frequency">{p.sample_frequency||p.frequency.replaceAll('_',' ')}</span></td>
       {hourSlots.map((s,i)=>{
         const k=entryKey(p.id,s.start,product),e=saved.get(k),na=naDrafts[k];
-        if(e){const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';const dv=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;return <td key={s.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}><Lock size={9}/>{isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(dv)}</td>}
-        if(i===activeHour){const hasTarget=!!String(p.target_text||'').trim();return <td key={s.start} className={`qg-cell qg-cell-active ${hasTarget?'':'qg-target-required'}`}>{!hasTarget?<span className="target-entry-locked"><Lock size={11}/> Target required</span>:na?.reason?<span className="qg-na-chip">NA • {na.reason}</span>:<InputControl p={p} value={values[k]||''} onChange={v=>setValues(x=>({...x,[k]:v}))} compact/>}{hasTarget?<button type="button" className="qg-na-action" onClick={()=>beginNA(k)}>NA</button>:null}{hasTarget&&naOpen===k?<div className="qg-na-popover" onClick={z=>z.stopPropagation()}><b>Mark result as NA</b><select value={na?.reason||''} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:z.target.value,note:x[k]?.note||''}}))}><option value="">Select reason</option>{NA_REASONS.map(r=><option key={r} value={r}>{r}</option>)}</select>{na?.reason==='Other'?<input value={na.note} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:x[k]?.reason||'Other',note:z.target.value}}))} placeholder="Required note"/>:null}<div className="qg-na-buttons"><button type="button" onClick={()=>clearNA(k)}>Cancel</button><button type="button" className="primary" disabled={!na?.reason||(na.reason==='Other'&&!na.note.trim())} onClick={()=>setNaOpen('')}>Apply</button></div></div>:null}</td>;}
+
+if(e){
+  const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';
+  const dv=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;
+
+  return <td key={s.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}>
+    <Lock size={9}/>
+    {isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(dv)}
+  </td>;
+}
+
+// Section-level Not Operating overlay.
+// Saved entries above always take priority.
+if(sectionNotOperating){
+  return (
+    <td key={s.start} className="qg-cell qg-cell-locked">
+      <span className="qg-na-chip">N/A • Not Operating</span>
+    </td>
+  );
+}
+
+if(i===activeHour){
+        const hasTarget=!!String(p.target_text||'').trim();return <td key={s.start} className={`qg-cell qg-cell-active ${hasTarget?'':'qg-target-required'}`}>{!hasTarget?<span className="target-entry-locked"><Lock size={11}/> Target required</span>:na?.reason?<span className="qg-na-chip">NA • {na.reason}</span>:<InputControl p={p} value={values[k]||''} onChange={v=>setValues(x=>({...x,[k]:v}))} compact/>}{hasTarget?<button type="button" className="qg-na-action" onClick={()=>beginNA(k)}>NA</button>:null}{hasTarget&&naOpen===k?<div className="qg-na-popover" onClick={z=>z.stopPropagation()}><b>Mark result as NA</b><select value={na?.reason||''} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:z.target.value,note:x[k]?.note||''}}))}><option value="">Select reason</option>{NA_REASONS.map(r=><option key={r} value={r}>{r}</option>)}</select>{na?.reason==='Other'?<input value={na.note} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:x[k]?.reason||'Other',note:z.target.value}}))} placeholder="Required note"/>:null}<div className="qg-na-buttons"><button type="button" onClick={()=>clearNA(k)}>Cancel</button><button type="button" className="primary" disabled={!na?.reason||(na.reason==='Other'&&!na.note.trim())} onClick={()=>setNaOpen('')}>Apply</button></div></div>:null}</td>;}
         return <td key={s.start} className="qg-cell qg-cell-pending" onClick={()=>onJumpHour(i)} title="Click to edit this hour">—</td>;
       })}
       <td className="qg-stat-col">{min!=null?min.toFixed(2).replace(/\.00$/,''):'—'}</td>
       <td className="qg-stat-col">{max!=null?max.toFixed(2).replace(/\.00$/,''):'—'}</td>
       <td className="qg-stat-col">{avg!=null?avg.toFixed(2):'—'}</td>
-      <td className="qg-comments-col">{(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product),activeLocked=saved.has(activeK);if(!activeLocked)return String(p.target_text||'').trim()?<textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>:<span className="qg-comment-readout">Set target first</span>;return <span className="qg-comment-readout">{lastComment||'—'}</span>})()}
-        {(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product),e=saved.get(activeK);if(!e)return null;return <>{e.amended_at?<div className="entry-locked-badge" style={{color:'#a96300',background:'#fff8ec',borderColor:'#f2e6cf',marginTop:4}}>Amended</div>:null}{canAmend?<button type="button" className="entry-amend-link" onClick={()=>onRequestAmend(e,p)}>Request correction</button>:null}</>})()}
-      </td>
+      <td className="qg-comments-col">{(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product);const activeLocked=saved.has(activeK);if(sectionNotOperating){return <span className="qg-comment-readout">Section not operating</span>}if(!activeLocked){return String(p.target_text||'').trim()?(<textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>):<span className="qg-comment-readout">Set target first</span>}return <span className="qg-comment-readout">{lastComment||'—'}</span>})()}</td>
     </tr>;
   })}</tbody></table></div>;
 }
@@ -520,7 +940,7 @@ function QualityGridTable({rows,session,hourSlots,activeHour,product,entries,sav
 // "NO ENTRY" cell can still be unlocked on demand (unlockedCells) if a
 // real re-check is needed at a different hour.
 function isHourlyFrequency(f:string){return ['hourly','every_two_hours','every_4_hours'].includes(String(f))}
-function PlantGridTable({rows,hourSlots,activeHour,product,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,unlockedCells,setUnlockedCells,canAmend,onRequestAmend}:{rows:Param[];hourSlots:HourSlot[];activeHour:number;product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;unlockedCells:Set<string>;setUnlockedCells:React.Dispatch<React.SetStateAction<Set<string>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void}){
+function PlantGridTable({rows,hourSlots,activeHour,product,sectionNotOperating,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,unlockedCells,setUnlockedCells,canAmend,onRequestAmend}:{rows:Param[];hourSlots:HourSlot[];activeHour:number;sectionNotOperating: boolean;product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;unlockedCells:Set<string>;setUnlockedCells:React.Dispatch<React.SetStateAction<Set<string>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void}){
   const [naOpen,setNaOpen]=useState<string>('');
   const scrollRef=useActiveHourScroll(activeHour);
   function beginNA(k:string){setNaDrafts(x=>({...x,[k]:x[k]||{reason:'',note:''}}));setNaOpen(k)}
@@ -543,17 +963,32 @@ function PlantGridTable({rows,hourSlots,activeHour,product,entries,saved,values,
       <td className="qg-frequency-col"><span className="source-param-frequency">{p.sample_frequency||p.frequency.replaceAll('_',' ')}</span></td>
       {hourSlots.map((s,i)=>{
         const k=entryKey(p.id,s.start,product),e=saved.get(k),na=naDrafts[k];
-        if(e){const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';const dv=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;return <td key={s.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}><Lock size={9}/>{isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(dv)}</td>}
-        const isDefaultHour=isHourlyFrequency(p.frequency)||i===0;
-        if(!isDefaultHour&&!unlockedCells.has(k))return <td key={s.start} className="qg-cell qg-cell-noentry"><span>NO ENTRY</span><button type="button" className="qg-noentry-unlock" onClick={()=>unlock(k)}>Enter anyway</button></td>;
+
+if(e){
+  const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';
+  const dv=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;
+  return <td key={s.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}>
+    <Lock size={9}/>
+    {isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(dv)}
+  </td>;
+}
+
+const isDefaultHour=isHourlyFrequency(p.frequency)||i===0;
+
+// Section-level Not Operating overlay.
+// Existing saved entries above always take priority.
+if(sectionNotOperating && (isDefaultHour || unlockedCells.has(k))){
+  return <td key={s.start} className="qg-cell qg-cell-locked">
+    <span className="qg-na-chip">N/A • Not Operating</span>
+  </td>;
+}        
+        if(!isDefaultHour&&!unlockedCells.has(k)){return(<td key={s.start} className="qg-cell qg-cell-noentry"><span>NO ENTRY</span>{!sectionNotOperating&&<button type="button" className="qg-noentry-unlock" onClick={()=>unlock(k)}>Enter anyway</button>}</td>);}
         return <td key={s.start} className={`qg-cell qg-cell-active ${i===activeHour?'qg-cell-current':''}`}>{na?.reason?<span className="qg-na-chip">NA • {na.reason}</span>:<InputControl p={p} value={values[k]||''} onChange={v=>setValues(x=>({...x,[k]:v}))} compact/>}<button type="button" className="qg-na-action" onClick={()=>beginNA(k)}>NA</button>{naOpen===k?<div className="qg-na-popover" onClick={z=>z.stopPropagation()}><b>Mark as NA</b><select value={na?.reason||''} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:z.target.value,note:x[k]?.note||''}}))}><option value="">Select reason</option>{NA_REASONS.map(r=><option key={r} value={r}>{r}</option>)}</select>{na?.reason==='Other'?<input value={na.note} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:x[k]?.reason||'Other',note:z.target.value}}))} placeholder="Required note"/>:null}<div className="qg-na-buttons"><button type="button" onClick={()=>clearNA(k)}>Cancel</button><button type="button" className="primary" disabled={!na?.reason||(na.reason==='Other'&&!na.note.trim())} onClick={()=>setNaOpen('')}>Apply</button></div></div>:null}</td>;
       })}
       <td className="qg-stat-col">{min!=null?min.toFixed(2).replace(/\.00$/,''):'—'}</td>
       <td className="qg-stat-col">{max!=null?max.toFixed(2).replace(/\.00$/,''):'—'}</td>
       <td className="qg-stat-col">{avg!=null?avg.toFixed(2):'—'}</td>
-      <td className="qg-comments-col">{(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product),activeLocked=saved.has(activeK);if(!activeLocked)return <textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>;return <span className="qg-comment-readout">{lastComment||'—'}</span>})()}
-        {(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product),e=saved.get(activeK);if(!e)return null;return <>{e.amended_at?<div className="entry-locked-badge" style={{color:'#a96300',background:'#fff8ec',borderColor:'#f2e6cf',marginTop:4}}>Amended</div>:null}{canAmend?<button type="button" className="entry-amend-link" onClick={()=>onRequestAmend(e,p)}>Request correction</button>:null}</>})()}
-      </td>
+      <td className="qg-comments-col">{(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product);const activeLocked=saved.has(activeK);if(sectionNotOperating){return <span className="qg-comment-readout">Section not operating</span>}if(!activeLocked){return <textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>}return <span className="qg-comment-readout">{lastComment||'—'}</span>})()}</td>
     </tr>;
   })}</tbody></table></div>;
 }
@@ -566,14 +1001,15 @@ function PlantGridTable({rows,hourSlots,activeHour,product,entries,saved,values,
 // the current section's parameters. The chip strip at the top still lists
 // every category regardless of step, for direct navigation — it is a
 // jump-to link, not a filter: nothing is hidden by it.
-function PlantEntryPages({plantPages,plantPage,onJumpToSection,onPrevPage,onNextPage,hourSlots,activeHour,product,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,unlockedCells,setUnlockedCells,canAmend,onRequestAmend,message,aiBusy,saving,readOnly,onAI,onSave}:{plantPages:{name:string;rows:Param[]}[][];plantPage:number;onJumpToSection:(name:string)=>void;onPrevPage:()=>void;onNextPage:()=>void;hourSlots:HourSlot[];activeHour:number;product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;unlockedCells:Set<string>;setUnlockedCells:React.Dispatch<React.SetStateAction<Set<string>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void;message:string;aiBusy:boolean;saving:boolean;readOnly?:boolean;onAI:()=>void;onSave:(rows:Param[])=>void}){
+function PlantEntryPages({plantPages,plantPage,onJumpToSection,onPrevPage,onNextPage,hourSlots,activeHour,product,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,unlockedCells,setUnlockedCells,canAmend,onRequestAmend,message,aiBusy,saving,readOnly,sectionStatuses, canUndoSectionStatus, onMarkSection, onUndoSection,onAI,onSave}:{plantPages: { id: number; name: string; rows: Param[] }[][];plantPage:number;onJumpToSection:(name:string)=>void;onPrevPage:()=>void;onNextPage:()=>void;hourSlots:HourSlot[];activeHour:number;product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;unlockedCells:Set<string>;setUnlockedCells:React.Dispatch<React.SetStateAction<Set<string>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void;message:string;aiBusy:boolean;saving:boolean;readOnly?:boolean; sectionStatuses:SectionOperatingStatus[]; canUndoSectionStatus:boolean; onMarkSection:(section:{id:number;name:string})=>void; onUndoSection:(status:SectionOperatingStatus)=>void; onAI:()=>void; onSave:(rows:Param[])=>void
+}) {
   const allSections=plantPages.flat(),currentSections=plantPages[plantPage]||[],pageRows=currentSections.flatMap(s=>s.rows),isLast=plantPage>=plantPages.length-1;
   return <section className="source-form-card plant-entry-card">
-    <div className="plant-section-index">{allSections.map(sec => { const onCurrentPage = currentSections.some(s => s.name === sec.name); const enteredCount = sec.rows.filter(p => entries.some(e => e.parameter_id === p.id && (e.product_code || 'PLANT') === product)).length; const totalCount = sec.rows.length; return <a key={sec.name} href={`#${slugify(sec.name)}`} className={onCurrentPage ? 'current-page' : ''} onClick={e => { if (!onCurrentPage) { e.preventDefault(); onJumpToSection(sec.name); } }}><SectionIcon name={sec.name} />{sec.name}<span className="plant-section-count">{enteredCount}/{totalCount}</span></a>; })}</div>
+    <div className="plant-section-index">{allSections.map(sec => { const onCurrentPage = currentSections.some(s => s.name === sec.name); const isNotOperating=sectionStatuses.some(status=>status.section_id===sec.id&&status.product_code===product&&status.status==='not_operating');const enteredCount=isNotOperating?sec.rows.length:sec.rows.filter(p=>entries.some(e=>e.parameter_id===p.id&&(e.product_code||'PLANT')===product)).length; const totalCount = sec.rows.length; return <a key={sec.name} href={`#${slugify(sec.name)}`} className={onCurrentPage ? 'current-page' : ''} onClick={e => { if (!onCurrentPage) { e.preventDefault(); onJumpToSection(sec.name); } }}><SectionIcon name={sec.name} />{sec.name}<span className="plant-section-count">{enteredCount}/{totalCount}</span></a>; })}</div>
     {plantPages.length>1?<div className="plant-page-nav"><button type="button" className="btn btn-outline" disabled={plantPage===0} onClick={onPrevPage}>← Previous section</button><span>Section {plantPage+1} of {plantPages.length}</span><button type="button" className="btn btn-outline" disabled={isLast} onClick={onNextPage}>Next section →</button></div>:null}
     {currentSections.map(sec=><section key={sec.name} id={slugify(sec.name)} className="plant-section-block">
-      <header className="plant-section-heading"><SectionIcon name={sec.name}/><h2>{sec.name}</h2><span>{sec.rows.length} parameter{sec.rows.length===1?'':'s'}</span></header>
-      <PlantGridTable rows={sec.rows} hourSlots={hourSlots} activeHour={activeHour} product={product} entries={entries} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} naDrafts={naDrafts} setNaDrafts={setNaDrafts} unlockedCells={unlockedCells} setUnlockedCells={setUnlockedCells} canAmend={canAmend} onRequestAmend={onRequestAmend}/>
+      <header className="plant-section-heading"><SectionIcon name={sec.name}/><h2>{sec.name}</h2>{(()=>{const activeStatus=sectionStatuses.find(status=>status.section_id===sec.id&&status.product_code===product&&status.status==='not_operating');if(activeStatus){return(<div className="section-status-actions"><span className="section-not-operating-badge">Not Operating</span>{canUndoSectionStatus&&<button type="button" onClick={()=>onUndoSection(activeStatus)}>Undo</button>}</div>)}return(<button type="button" className="section-not-operating-button"  disabled={readOnly} onClick={()=>onMarkSection({id:sec.id,name:sec.name})}>Not Operating</button>)})()}<span>{sec.rows.length} parameter{sec.rows.length===1?'':'s'}</span></header>
+      <PlantGridTable rows={sec.rows} hourSlots={hourSlots} activeHour={activeHour} product={product} entries={entries} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} naDrafts={naDrafts} setNaDrafts={setNaDrafts} unlockedCells={unlockedCells} setUnlockedCells={setUnlockedCells} canAmend={canAmend} onRequestAmend={onRequestAmend} sectionNotOperating={sectionStatuses.some(status=>status.section_id===sec.id&&status.product_code===product&&status.status==='not_operating')}/>
     </section>)}
     {message?<div className={`notice ${/fail|error|missing/i.test(message)?'danger':''}`} style={{margin:'14px 16px 0'}}>{message}</div>:null}
     <footer className="source-form-actions"><div><b>{currentSections[0]?.name||'Section'}</b><span>Save applies to this section only.</span></div><div className="action-row"><button className="btn btn-secondary" disabled={aiBusy||readOnly} onClick={onAI}>{aiBusy?'Analysing… (up to a minute)':'AI Insight'}</button><button className="btn btn-primary" disabled={saving||!pageRows.length||readOnly} onClick={()=>onSave(pageRows)}>{saving?'Saving…':'Save section'}</button>{plantPages.length>1&&!isLast?<button type="button" className="btn btn-outline" disabled={saving} onClick={onNextPage}>Next section →</button>:null}</div></footer>

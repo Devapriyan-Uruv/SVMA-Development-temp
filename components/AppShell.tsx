@@ -2,8 +2,9 @@
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {useEffect,useMemo,useState,type ComponentType,type ReactNode} from 'react';
-import {Activity,Boxes,Coins,ClipboardCheck,IdCard,LogOut,Megaphone,MessageCircle,Package,Ship,SendHorizontal,ShieldCheck,UserCog,ChevronDown, ChevronUp} from 'lucide-react';
+import {Activity,Boxes,Coins,ClipboardCheck,IdCard,LogOut,Megaphone,MessageCircle,Package,Ship,SendHorizontal,ShieldCheck,UserCog,ChevronDown,ChevronUp,User,ArrowUpRight} from 'lucide-react';
 import {NotificationBell} from '@/components/NotificationBell';
+import {ProfilePopover} from '@/components/ProfilePopover';
 import {AnnouncementPopup} from '@/components/AnnouncementPopup';
 import {AssistantBubble} from '@/components/AssistantBubble';
 import {greetingFor,friendlyName} from '@/lib/greeting';
@@ -56,6 +57,7 @@ const isLogin = pathname === '/login';
 const isHome = pathname === '/';
  const [me,setMe]=useState<any>(null),[sessionError,setSessionError]=useState('');
  const [greeting,setGreeting]=useState('');
+const [profileOpen,setProfileOpen]=useState(false);
  useEffect(()=>{const update=()=>setGreeting(greetingFor(new Date().getHours()));update();const id=setInterval(update,60000);return()=>clearInterval(id)},[]);
  useEffect(()=>{if(isLogin)return;setSessionError('');fetch('/api/me',{cache:'no-store'}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`Session request failed (${r.status})`);return j}).then(setMe).catch(e=>{setMe(null);setSessionError(e instanceof Error?e.message:'Unable to load access')})},[isLogin,pathname]);
  // Section: nav dock badges (unread chat conversations / pending approvals)
@@ -98,12 +100,57 @@ const isHome = pathname === '/';
  return <div className="saas-shell no-rail-shell">
   <section className="saas-stage premium-stage full-bleed-stage">
    <header className="saas-topbar premium-topbar">
-    <div className="topbar-left">
-    <Link className="topbar-brand" href="/"><div className="topbar-brand-mark"><img src="/svma-logo2.png" alt="SVMA" /><span className="topbar-tagline">Operational Intelligence</span></div></Link>
-     {!isHome && (<div className="topbar-context"><div className="topbar-path"><b>{greeting?`${greeting}, ${displayName}`:current?.label||'Intelligent Operations'}</b><span>{current?.label||'Operational intelligence platform'}{me?.activeShift?.shift_master?.name?` • ${me.activeShift.shift_master.name}`:''}</span></div></div>)}
-    </div>
-    <div className="topbar-actions">{me?.activeShift?<span className="live-chip" title="This is your own active data-entry shift, not the plant's overall status"><Activity size={14}/><i/> Your {me.activeShift.scope==='quality'?'Quality':'Solvent'} shift is live</span>:null}<NotificationBell/><Link className="user-chip" href="/profile" title="My profile">{me?.profile?.avatar_url?<img src={me.profile.avatar_url} alt="" className="avatar-dot" style={{objectFit:'cover'}}/>:<span className="avatar-dot">{displayName.slice(0,1).toUpperCase()}</span>}<span><b>{me?.profile?.full_name||displayName}</b><small>{me?.roles?.[0]?.replaceAll('_',' ')||'User'}</small></span></Link></div>
-   </header>
+  <div className="topbar-left">
+    <Link className="topbar-brand" href="/">
+      <div className="topbar-brand-mark">
+        <img src="/svma-logo2.png" alt="SVMA" />
+        <span className="topbar-tagline">Operational Intelligence</span>
+      </div>
+    </Link>
+
+    {!isHome && (
+      <div className="topbar-context">
+        <div className="topbar-path">
+          <b>{greeting ? `${greeting}, ${displayName}` : current?.label || 'Intelligent Operations'}</b>
+          <span>
+            {current?.label || 'Operational intelligence platform'}
+            {me?.activeShift?.shift_master?.name
+              ? ` • ${me.activeShift.shift_master.name}`
+              : ''}
+          </span>
+        </div>
+      </div>
+    )}
+  </div>
+
+  <div className="topbar-actions">
+    {me?.activeShift ? (
+  <Link
+    href={me.activeShift.scope === 'quality' ? '/quality-input' : '/input'}
+    className="live-chip"
+    title="Open your active shift entry page"
+  >
+    <span className="live-chip-dot" />
+    <span>
+      Your {me.activeShift.scope === 'quality' ? 'Quality' : 'Solvent'} Shift Live
+    </span>
+    <ArrowUpRight size={15} />
+  </Link>
+) : null}
+
+    <NotificationBell />
+
+    <button
+      type="button"
+      className="icon-btn"
+      title="My Profile"
+      aria-label="Open my profile"
+      onClick={() => setProfileOpen(true)}
+    >
+      <User size={17} />
+    </button>
+  </div>
+</header>
    <main className="main-content premium-content dock-clearance">{sessionError?<div className="session-error-banner"><b>Access profile could not be loaded.</b><span>Please refresh or contact your administrator.</span><small>Check your account's module access with the SVMA Administrator, then refresh.</small></div>:null}{children}</main>
    <footer className="app-footer"><span>SVMA Intelligent Operations</span><span className="powered-by">Powered by<img src="/uruv_logo.png" alt="Uruv" className="aix3-mark"/></span></footer>
   </section>
@@ -177,6 +224,11 @@ const isHome = pathname === '/';
 
   <AssistantBubble/>
   <AnnouncementPopup/>
+  <ProfilePopover
+  
+  userId={profileOpen ? me?.user?.id || null : null}
+  onClose={() => setProfileOpen(false)}
+/>
   {me?.lockApplies&&me?.activeShift?<div className="focus-banner">Active shift • keep operational input in focus</div>:null}
  </div>
 }
