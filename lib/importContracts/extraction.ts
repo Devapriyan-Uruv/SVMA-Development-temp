@@ -1,4 +1,5 @@
-// Shared by the contract upload route and the bulk loader: the extraction prompt, the result parser and the file checks.
+// Shared by the contract upload route and the bulk loader:
+// extraction prompt, result parser and file checks.
 
 export const ALLOWED_TYPES = new Set([
   'application/pdf',
@@ -28,58 +29,23 @@ export const FIELD_NAMES = [
 ];
 
 const EXPENSE_FIELDS = [
-  'invNo',
-  'invQty',
-  'rPTon',
-  'insurance',
-  'invValueINR',
-  'bankChgs',
-  'boeNo',
-  'duty',
-  'igst',
-  'dutyInterest',
-  'linerFees',
-  'pqFees',
-  'cfs',
-  'chaFees',
-  'fssai',
-  'handCharges',
-  'surveyor',
-  'demurage',
-  'freight',
-  'comFees',
-  'totValue',
+  'invNo', 'invQty', 'rPTon', 'insurance', 'invValueINR', 'bankChgs',
+  'boeNo', 'duty', 'igst', 'dutyInterest', 'linerFees', 'pqFees', 'cfs',
+  'chaFees', 'fssai', 'handCharges', 'surveyor', 'demurage', 'freight',
+  'comFees', 'totValue',
 ] as const;
 
 const SETTLEMENT_FIELDS = [
-  'invNo',
-  'invQty',
-  'rPTon',
-  'invValueUSD',
-  'advPaidUSD',
-  'balanceUSD',
-  'advINR',
-  'balanceINR',
-  'assValue',
-  'purchaseValue',
-  'setValue',
-  'diffValue',
+  'invNo', 'invQty', 'rPTon', 'invValueUSD', 'advPaidUSD', 'balanceUSD',
+  'advINR', 'balanceINR', 'assValue', 'purchaseValue', 'setValue', 'diffValue',
 ] as const;
 
 const PER_TON_FIELDS = [
-  'partyAmount',
-  'totalExp',
-  'receivedTons',
-  'perTonPerCost',
+  'partyAmount', 'totalExp', 'receivedTons', 'perTonPerCost',
 ] as const;
 
 const LOAD_WISE_FIELDS = [
-  'date',
-  'vehicleNo',
-  'loadingTon',
-  'lfPerTon',
-  'totFreight',
-  'purValue',
+  'date', 'vehicleNo', 'loadingTon', 'lfPerTon', 'totFreight', 'purValue',
 ] as const;
 
 export const EXTRACTION_PROMPT = `
@@ -159,13 +125,69 @@ ADDITIONAL SECTION 4: receivedQtyLoadWiseDetails
 Extract every identifiable loading row. Each row must contain:
 date, vehicleNo, loadingTon, lfPerTon, totFreight, purValue.
 
+REFERENCE EXTRACTION RULES — IMPORTANT:
+
+- Extract contractNumber from the explicitly labelled contract
+  number or reference.
+- Recognize labels including:
+  Contract No,
+  Contract Number,
+  Sales Contract No,
+  Sales Contract Number,
+  Contract Ref,
+  Contract Reference,
+  Import Contract No.
+
+- Preserve the complete contract reference exactly as printed,
+  including prefixes, hyphens, slashes and leading zeros.
+
+- Example:
+  PI-20260701-SVMA must remain PI-20260701-SVMA.
+  Never shorten it to 20260701.
+
+- Do not confuse a purchase order number, proforma invoice number,
+  commercial invoice number, LC number, shipment number or BOE number
+  with contractNumber.
+
+- Extract invoice numbers into invNo and Bill of Entry numbers into
+  boeNo wherever those values are explicitly present.
+
+- Recognize BOE labels including:
+  Bill of Entry No,
+  Bill of Entry Number,
+  BOE No,
+  BOE Number,
+  B/E No,
+  B/E Number,
+  Bill Entry Number.
+
+- Preserve BOE numbers as strings, including leading zeros.
+
+- If several invoice numbers or BOE numbers exist,
+  preserve each in its corresponding row.
+
+- Do not combine multiple references into one value.
+
+- Do not assign one row's reference to another row.
+
+- Do not invent a BOE number from a contract number,
+  date, invoice number or narration.
+
+- If a reference is absent, return null and report it
+  as missing or uncertain where appropriate.
+
+- When a reference is partly unreadable, return the readable
+  value only if it remains unambiguous.
+  Otherwise return null and add a warning.
+
 EXTRACTION RULES:
+
 - Never invent values.
 - Use null for missing or unreadable individual values.
 - Use an empty array if no rows can be identified in a section.
 - If perTonCost is unavailable, return all four properties as null.
-- Preserve invoice numbers, BOE numbers, and vehicle numbers as
-  strings, including leading zeros.
+- Preserve invoice numbers, BOE numbers, contract numbers,
+  and vehicle numbers as strings, including leading zeros.
 - Use numbers for numeric amounts and quantities only when clear.
 - Do not confuse an empty cell with zero.
 - Preserve the stated currency; never assume one.
@@ -178,14 +200,13 @@ EXTRACTION RULES:
 - Do not replace a stated amount with a calculated amount.
 - Do not extract unrelated sensitive information that is not
   requested by the schema.
-- Use the exact contract field names in missingFields and
-  uncertainFields for missing or uncertain contract fields.
+- Use exact contract field names in missingFields and uncertainFields.
 - For additional section fields, use section.field notation
-  in uncertainFields when a value is ambiguous, for example
-  expensesDetails.duty or receivedQtyLoadWiseDetails.vehicleNo.
+  in uncertainFields when a value is ambiguous.
 - Add warnings when a value is ambiguous or a discrepancy is
   clearly supported by the document.
-- Return valid JSON only.
+
+Return valid JSON only.
 `;
 
 export type Extraction = {
@@ -204,25 +225,17 @@ export type Extraction = {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.filter(
-        (item): item is string => typeof item === 'string',
-      )
+    ? value.filter((item): item is string => typeof item === 'string')
     : [];
 }
 
-function isRecord(
-  value: unknown,
-): value is Record<string, unknown> {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    !Array.isArray(value)
-  );
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function normalizeFields(
   source: unknown,
-  names: readonly string[],
+  names: readonly string[]
 ): Record<string, unknown> {
   const input = isRecord(source) ? source : {};
   const result: Record<string, unknown> = {};
@@ -236,11 +249,9 @@ function normalizeFields(
 
 function normalizeRows(
   source: unknown,
-  names: readonly string[],
+  names: readonly string[]
 ): Record<string, unknown>[] {
-  if (!Array.isArray(source)) {
-    return [];
-  }
+  if (!Array.isArray(source)) return [];
 
   return source
     .filter(isRecord)
@@ -250,19 +261,11 @@ function normalizeRows(
 export function parseExtraction(output: string): Extraction {
   const parsed: unknown = JSON.parse(output);
 
-  if (
-    !isRecord(parsed) ||
-    !isRecord(parsed.fields)
-  ) {
-    throw new Error(
-      'The AI returned an invalid extraction result.',
-    );
+  if (!isRecord(parsed) || !isRecord(parsed.fields)) {
+    throw new Error('The AI returned an invalid extraction result.');
   }
 
-  const fields = normalizeFields(
-    parsed.fields,
-    FIELD_NAMES,
-  );
+  const fields = normalizeFields(parsed.fields, FIELD_NAMES);
 
   const materials = Array.isArray(parsed.materials)
     ? parsed.materials.filter(isRecord)
@@ -275,22 +278,22 @@ export function parseExtraction(output: string): Extraction {
   const additionalDetails = {
     expensesDetails: normalizeRows(
       rawAdditional.expensesDetails,
-      EXPENSE_FIELDS,
+      EXPENSE_FIELDS
     ),
 
     settlementDetails: normalizeRows(
       rawAdditional.settlementDetails,
-      SETTLEMENT_FIELDS,
+      SETTLEMENT_FIELDS
     ),
 
     perTonCost: normalizeFields(
       rawAdditional.perTonCost,
-      PER_TON_FIELDS,
+      PER_TON_FIELDS
     ),
 
     receivedQtyLoadWiseDetails: normalizeRows(
       rawAdditional.receivedQtyLoadWiseDetails,
-      LOAD_WISE_FIELDS,
+      LOAD_WISE_FIELDS
     ),
   };
 
@@ -306,23 +309,21 @@ export function parseExtraction(output: string): Extraction {
 
 export function validFileSignature(
   bytes: Buffer,
-  mimeType: string,
+  mimeType: string
 ): boolean {
   if (mimeType === 'application/pdf') {
     return bytes.subarray(0, 5).toString('ascii') === '%PDF-';
   }
 
   if (mimeType === 'image/jpeg') {
-    return (
-      bytes[0] === 0xff &&
+    return bytes[0] === 0xff &&
       bytes[1] === 0xd8 &&
-      bytes[2] === 0xff
-    );
+      bytes[2] === 0xff;
   }
 
   if (mimeType === 'image/png') {
     return bytes.subarray(0, 8).equals(
-      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
     );
   }
 
@@ -330,9 +331,5 @@ export function validFileSignature(
 }
 
 export function safeFileName(name: string): string {
-  return (
-    name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) ||
-    'contract'
-  );
+  return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'contract';
 }
-
