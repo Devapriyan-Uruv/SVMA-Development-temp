@@ -45,8 +45,14 @@ export async function loadSettlement(db: Db, contractId: string): Promise<Loaded
   };
   invoices = invoices.map((i, k) => fill(i, invRows[k]?.import_entry_id));
   const record = contract.import_entry_id ? { id: contract.import_entry_id as string, refCode: (rec.get(contract.import_entry_id)?.ref_code as string) || '' } : null;
-
-  const links: Link[] = (lk.data || []).map((x: any) => ({ kind: x.kind, refKey: x.ref_key, colKey: x.col_key, status: x.status }));
+  
+  const links: Link[] = (lk.data || []).map((x: any) => ({
+  kind: x.kind,
+  refKey: x.ref_key,
+  colKey: x.col_key,
+  status: x.status,
+  invoiceId: x.invoice_id || null,
+}));
   const overrides: Override[] = (ov.data || []).map((x: any) => ({ invoiceId: x.invoice_id, colKey: x.col_key, value: x.value == null ? null : Number(x.value) }));
 
   const cd = Date.parse(String(contract.contract_date || ''));

@@ -4,6 +4,7 @@ import {supabaseAdmin} from '@/lib/supabase/admin';
 import {aix3Complete,aix3Enabled} from '@/lib/aix3/provider';
 import {getPeriodOperationsSummary,getOpenExceptions} from '@/lib/aix3/tools';
 import {errorMessage,logServerError} from '@/lib/errors';
+import { resolveParameterMetadata } from '@/lib/parameterMetadata';
 
 async function opsFacts(dateRange?:{from?:string;to?:string}){
  const to=dateRange?.to||new Date().toISOString().slice(0,10);
@@ -24,29 +25,121 @@ async function moduleSet(db:ReturnType<typeof supabaseAdmin>,userId:string){
  return{roles,modules:new Set((access||[]).filter((a:any)=>a.can_view).map((a:any)=>String(a.module)))};
 }
 
-async function solventFacts(db:ReturnType<typeof supabaseAdmin>){
- const [{data:liveShift},{data:devs},{data:tickets}]=await Promise.all([
-  db.from('shift_sessions').select('id,shift_master(name),active_products').eq('scope','solvent').eq('status','active').limit(1).maybeSingle(),
-  db.from('deviations').select('id,severity,status,parameter_master(parameter_sections(module))').order('created_at',{ascending:false}).limit(400),
-  db.from('deviation_tickets').select('id,status,deviation_id').order('created_at',{ascending:false}).limit(400),
- ]);
- const solventDevs=(devs||[]).filter((d:any)=>['solvent','boiler'].includes(String(d.parameter_master?.parameter_sections?.module)));
- const open=solventDevs.filter((d:any)=>!['resolved','closed'].includes(d.status));
- const devIds=new Set(solventDevs.map((d:any)=>d.id));
- const openTickets=(tickets||[]).filter((t:any)=>devIds.has(t.deviation_id)&&!['resolved','closed'].includes(t.status));
- return{liveShiftActive:!!liveShift,liveShiftName:(liveShift as any)?.shift_master?.name||null,liveProducts:liveShift?.active_products||[],openDeviations:open.length,criticalDeviations:open.filter((d:any)=>d.severity==='critical').length,warningDeviations:open.filter((d:any)=>d.severity==='warning').length,openTickets:openTickets.length};
+async function solventFacts(db: ReturnType<typeof supabaseAdmin>) {
+  const [{ data: liveShift }, { data: devs }, { data: tickets }] =
+    await Promise.all([
+      db.from('shift_sessions')
+        .select('id,shift_master(name),active_products')
+        .eq('scope', 'solvent')
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle(),
+
+      db.from('deviations')
+        .select('id,severity,status,parameter_id')
+        .order('created_at', { ascending: false })
+        .limit(400),
+
+      db.from('deviation_tickets')
+        .select('id,status,deviation_id')
+        .order('created_at', { ascending: false })
+        .limit(400),
+    ]);
+
+  const metadata = await resolveParameterMetadata(
+    db,
+    (devs || []).map((d: any) => d.parameter_id)
+  );
+
+  const solventDevs = (devs || []).filter((d: any) => {
+    const parameter = metadata.get(Number(d.parameter_id));
+    const module = parameter?.parameter_sections?.module;
+
+    return ['solvent', 'boiler'].includes(String(module));
+  });
+
+  const open = solventDevs.filter(
+    (d: any) => !['resolved', 'closed'].includes(d.status)
+  );
+
+  const devIds = new Set(solventDevs.map((d: any) => d.id));
+
+  const openTickets = (tickets || []).filter(
+    (t: any) =>
+      devIds.has(t.deviation_id) &&
+      !['resolved', 'closed'].includes(t.status)
+  );
+
+  return {
+    liveShiftActive: !!liveShift,
+    liveShiftName: (liveShift as any)?.shift_master?.name || null,
+    liveProducts: liveShift?.active_products || [],
+    openDeviations: open.length,
+    criticalDeviations: open.filter(
+      (d: any) => d.severity === 'critical'
+    ).length,
+    warningDeviations: open.filter(
+      (d: any) => d.severity === 'warning'
+    ).length,
+    openTickets: openTickets.length,
+  };
 }
-async function qualityFacts(db:ReturnType<typeof supabaseAdmin>){
- const [{data:liveShift},{data:devs},{data:tickets}]=await Promise.all([
-  db.from('shift_sessions').select('id,shift_master(name),active_products').eq('scope','quality').eq('status','active').limit(1).maybeSingle(),
-  db.from('deviations').select('id,severity,status,parameter_master(parameter_sections(module))').order('created_at',{ascending:false}).limit(400),
-  db.from('deviation_tickets').select('id,status,deviation_id').order('created_at',{ascending:false}).limit(400),
- ]);
- const qualDevs=(devs||[]).filter((d:any)=>String(d.parameter_master?.parameter_sections?.module)==='quality');
- const open=qualDevs.filter((d:any)=>!['resolved','closed'].includes(d.status));
- const devIds=new Set(qualDevs.map((d:any)=>d.id));
- const openTickets=(tickets||[]).filter((t:any)=>devIds.has(t.deviation_id)&&!['resolved','closed'].includes(t.status));
- return{liveShiftActive:!!liveShift,liveShiftName:(liveShift as any)?.shift_master?.name||null,liveProducts:liveShift?.active_products||[],openDeviations:open.length,criticalDeviations:open.filter((d:any)=>d.severity==='critical').length,warningDeviations:open.filter((d:any)=>d.severity==='warning').length,openTickets:openTickets.length};
+async function qualityFacts(db: ReturnType<typeof supabaseAdmin>) {
+  const [{ data: liveShift }, { data: devs }, { data: tickets }] =
+    await Promise.all([
+      db.from('shift_sessions')
+        .select('id,shift_master(name),active_products')
+        .eq('scope', 'quality')
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle(),
+
+      db.from('deviations')
+        .select('id,severity,status,parameter_id')
+        .order('created_at', { ascending: false })
+        .limit(400),
+
+      db.from('deviation_tickets')
+        .select('id,status,deviation_id')
+        .order('created_at', { ascending: false })
+        .limit(400),
+    ]);
+
+  const metadata = await resolveParameterMetadata(
+    db,
+    (devs || []).map((d: any) => d.parameter_id)
+  );
+
+  const qualDevs = (devs || []).filter((d: any) => {
+    const parameter = metadata.get(Number(d.parameter_id));
+    return String(parameter?.parameter_sections?.module) === 'quality';
+  });
+
+  const open = qualDevs.filter(
+    (d: any) => !['resolved', 'closed'].includes(d.status)
+  );
+
+  const devIds = new Set(qualDevs.map((d: any) => d.id));
+
+  const openTickets = (tickets || []).filter(
+    (t: any) =>
+      devIds.has(t.deviation_id) &&
+      !['resolved', 'closed'].includes(t.status)
+  );
+
+  return {
+    liveShiftActive: !!liveShift,
+    liveShiftName: (liveShift as any)?.shift_master?.name || null,
+    liveProducts: liveShift?.active_products || [],
+    openDeviations: open.length,
+    criticalDeviations: open.filter(
+      (d: any) => d.severity === 'critical'
+    ).length,
+    warningDeviations: open.filter(
+      (d: any) => d.severity === 'warning'
+    ).length,
+    openTickets: openTickets.length,
+  };
 }
 async function financeFacts(db:ReturnType<typeof supabaseAdmin>){
  const {count:openExceptions}=await db.from('reconciliation_exceptions').select('id',{count:'exact',head:true}).eq('status','open');

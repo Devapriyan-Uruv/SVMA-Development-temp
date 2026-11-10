@@ -2,6 +2,7 @@ import {supabaseAdmin} from './supabase/admin';
 import {productName} from './products';
 import {attachHandoffInfo} from './shiftHandoff';
 import {fetchAllRows} from './supabase/fetchAll';
+import {resolveParameterMetadata} from './parameterMetadata';
 
 // Shared by the Excel export (app/api/export/shift) and the in-app report
 // viewer (app/api/reports/shift-view) — same grouping/row logic either
@@ -41,10 +42,14 @@ export async function buildShiftReportData(scope:'solvent'|'quality',shiftSessio
  // (see lib/supabase/fetchAll.ts), which would quietly drop rows from the
  // very export/report meant to be the authoritative record of the shift.
  const [{data:entries,error},{data:deviations,error:de}]=await Promise.all([
-  fetchAllRows<any>((f,t)=>db.from('parameter_entries').select('*,profiles!parameter_entries_entered_by_fkey(full_name,email),parameter_master(name,unit,target_text,frequency,sample_frequency,result_latency_minutes,source_serial,source_group,sort_order,parameter_sections(name,module,sort_order))').eq('shift_session_id',shiftSessionId).order('slot_start',{ascending:true}).range(f,t)),
+  fetchAllRows<any>((f,t)=>db.from('parameter_entries').select('*,profiles!parameter_entries_entered_by_fkey(full_name,email)').eq('shift_session_id',shiftSessionId).order('slot_start',{ascending:true}).range(f,t)),
   fetchAllRows<any>((f,t)=>db.from('deviations').select('id,entry_id,parameter_id,severity,target_text,actual_text,status,created_at,deviation_tickets(ticket_no,status)').eq('shift_session_id',shiftSessionId).order('created_at',{ascending:true}).range(f,t)),
  ]);
  if(error)throw error;if(de)throw de;
+ // Resolve metadata independently of PostgREST FK joins. This keeps historical
+ // rows renderable when their parameter definition has moved to the archive.
+ const metadata=await resolveParameterMetadata(db,(entries||[]).map((e:any)=>e.parameter_id));
+ for(const entry of entries||[]) entry.parameter_master=metadata.get(Number(entry.parameter_id))||null;
  const modules=scope==='quality'?['quality']:['solvent','boiler'],rows=(entries||[]).filter((e:any)=>modules.includes(String(e.parameter_master?.parameter_sections?.module))),devs=deviations||[];
  const ticketCount=devs.reduce((n:number,d:any)=>n+(Array.isArray(d.deviation_tickets)?d.deviation_tickets.length:0),0);
  // Normally 8, but an extended shift's scheduled_end is pushed further

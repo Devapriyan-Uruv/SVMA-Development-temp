@@ -94,6 +94,11 @@ export async function POST(req:NextRequest){
     const b=await req.json(),scope=b.scope==='quality'?'quality':'solvent',az=await authFor(scope);
     if(!az.ok)return NextResponse.json({error:az.status===401?'Not authenticated':'Input access not assigned'},{status:az.status});
     const user=az.user!,db=supabaseAdmin(),productCode=String(b.productCode||'PLANT');
+    // These IDs are retired from new entry flow. Historical rows remain valid
+    // and readable through the archive-backed report metadata resolver.
+    if([302,303].includes(Number(b.parameterId))){
+      return NextResponse.json({error:'This parameter has been retired and cannot receive new readings.',code:'PARAMETER_RETIRED'},{status:409});
+    }
     const [{data:param,error:pe},{data:session,error:se}]=await Promise.all([
       db.from('parameter_master').select('*,parameter_sections(id,name,module)').eq('id',b.parameterId).single(),
       db.from('shift_sessions').select('id,scope,active_products,status,operator_id').eq('id',b.shiftSessionId).single(),
@@ -112,10 +117,17 @@ export async function POST(req:NextRequest){
     // The source row stays visible so Admin can configure the missing target.
     if(scope==='quality'&&!String(param.target_text||'').trim())return NextResponse.json({error:`Target configuration is required for ${param.name} before data entry can be submitted. Configure the target in Admin → Parameters & Targets.`,code:'TARGET_REQUIRED'},{status:422});
     // Prevent new readings for sections marked as Not Operating.
-    const sectionId = param.parameter_sections?.id;if(sectionId){const{data:activeSectionStatus,error:sectionStatusError}=await db.from('section_operating_status').select('id').eq('shift_session_id',b.shiftSessionId).eq('section_id',sectionId).eq('scope',scope).eq('product_code',productCode).eq('status','not_operating').maybeSingle();if(sectionStatusError){throw new Error('Unable to verify section operating status.')}if(activeSectionStatus){return NextResponse.json({error:'This section is marked as Not Operating. New readings cannot be submitted.',code:'SECTION_NOT_OPERATING'},{status:409})}}
-    if(session.scope!==scope)return NextResponse.json({error:'Shift belongs to a different workspace.'},{status:400});
-    if(session.status!=='active')return NextResponse.json({error:'This shift has ended. Start an active shift to enter readings.'},{status:409});
-    if(session.operator_id!==user.id&&!az.roles.some((r:string)=>['super_admin','admin','solvent_head','quality_head'].includes(r)))return NextResponse.json({error:'You can only enter readings for your own shift.'},{status:403});
+    // Validate shift scope.
+if(session.scope!==scope){return NextResponse.json({error:'Shift belongs to a different workspace.'},{status:400});}
+
+// Validate shift status.
+if(session.status!=='active'){return NextResponse.json({error:'This shift has ended. Start an active shift to enter readings.'},{status:409});}
+
+// Validate operator ownership.
+if(session.operator_id!==user.id&&!az.roles.some((r:string)=>['super_admin','admin','solvent_head','quality_head'].includes(r))){return NextResponse.json({error:'You can only enter readings for your own shift.'},{status:403});}
+
+// Prevent readings for sections marked as Not Operating.
+const sectionId=param.parameter_sections?.id;if(!sectionId){return NextResponse.json({error:'Unable to identify the parameter section.'},{status:400});}const{data:activeSectionStatus,error:sectionStatusError}=await db.from('section_operating_status').select('id').eq('shift_session_id',b.shiftSessionId).eq('section_id',sectionId).eq('scope',scope).eq('product_code',productCode).eq('status','not_operating').maybeSingle();if(sectionStatusError){throw new Error('Unable to verify section operating status.')}if(activeSectionStatus){return NextResponse.json({error:'This section is marked as Not Operating. New readings cannot be submitted.',code:'SECTION_NOT_OPERATING'},{status:409});}
     if(!b.isNA&&(b.value===null||b.value===undefined||String(b.value).trim()===''||(param.input_type==='number'&&!Number.isFinite(Number(b.value)))))return NextResponse.json({error:'Enter a valid reading.'},{status:400});
     const isNA=Boolean(b.isNA);
     if(isNA&&!String(b.naReason||'').trim())return NextResponse.json({error:'NA reason is required.'},{status:400});
