@@ -79,6 +79,8 @@ export async function POST(req: NextRequest) {
     let from = body.periodFrom as string, to = body.periodTo as string;
     for (const { v } of fileRows.values()) { if (v.date < from) from = v.date; if (v.date > to) to = v.date; }
 
+    if (!fileRows.size) return NextResponse.json({ error: 'No bill-reference vouchers were found in the uploaded period. Existing Day Book data was not changed.' }, { status: 400 });
+
     // Vouchers saved by an older reading of the Day Book (which could be a day out) are replaced by this upload, not kept beside it.
     const { error: purgeErr } = await db.from('outstanding_vouchers').delete().or(`payload->>ver.is.null,payload->>ver.neq.${VOUCHER_VERSION}`);
     if (purgeErr) throw purgeErr;
@@ -88,21 +90,43 @@ export async function POST(req: NextRequest) {
     if (exErr) throw exErr;
     const existing = new Map(existingRows.map(r => [r.vkey, r.content_hash]));
     const toWrite: { vkey: string; vch_date: string; vch_type: string; vch_no: string; content_hash: string; payload: CompactVoucher; updated_at: string }[] = [];
-    let added = 0, changed = 0, unchanged = 0;
-    for (const [key, { v, hash }] of fileRows) {
-      const old = existing.get(key);
-      if (old === undefined) added++; else if (old !== hash) changed++; else { unchanged++; continue; }
-      toWrite.push({ vkey: key, vch_date: v.date, vch_type: v.vchType, vch_no: v.vchNo, content_hash: hash, payload: v, updated_at: new Date().toISOString() });
+    let added = 0, changed = 0, unchanged = 0, removed = 0;
+    let keptDates: string[] = [];
+    const replaceExisting = body.replaceExisting === true;
+
+    if (replaceExisting) {
+      // Explicit replacement: clear every stored bill-wise voucher in the uploaded date range,
+      // then write the file's vouchers. The frontend requires an additional confirmation.
+      const { error: deleteErr, count } = await db
+        .from('outstanding_vouchers')
+        .delete({ count: 'exact' })
+        .gte('vch_date', from)
+        .lte('vch_date', to);
+      if (deleteErr) throw deleteErr;
+      removed = count ?? existingRows.length;
+      added = fileRows.size;
+      for (const [key, { v, hash }] of fileRows) {
+        toWrite.push({ vkey: key, vch_date: v.date, vch_type: v.vchType, vch_no: v.vchNo, content_hash: hash, payload: v, updated_at: new Date().toISOString() });
+      }
+    } else {
+      // Normal safe merge: add new vouchers, update edited vouchers and leave other saved vouchers alone.
+      for (const [key, { v, hash }] of fileRows) {
+        const old = existing.get(key);
+        if (old === undefined) added++; else if (old !== hash) changed++; else { unchanged++; continue; }
+        toWrite.push({ vkey: key, vch_date: v.date, vch_type: v.vchType, vch_no: v.vchNo, content_hash: hash, payload: v, updated_at: new Date().toISOString() });
+      }
+      // Remove missing vouchers only on dates that have a sufficiently complete file.
+      const fileCountByDate = new Map<string, number>();
+      for (const { v } of fileRows.values()) fileCountByDate.set(v.date, (fileCountByDate.get(v.date) || 0) + 1);
+      const { remove, keptDates: protectedDates } = planRemovals(existingRows.map(r => ({ row_key: r.vkey, vch_date: r.vch_date })), new Set(fileRows.keys()), fileCountByDate);
+      keptDates = protectedDates;
+      for (let i = 0; i < remove.length; i += 50) {
+        const { error } = await db.from('outstanding_vouchers').delete().in('vkey', remove.slice(i, i + 50));
+        if (error) throw error;
+      }
+      removed = remove.length;
     }
-    // Vouchers saved earlier for these dates that this file no longer contains were deleted / cancelled in Tally: remove them.
-    const fileCountByDate = new Map<string, number>();
-    for (const { v } of fileRows.values()) fileCountByDate.set(v.date, (fileCountByDate.get(v.date) || 0) + 1);
-    const { remove, keptDates } = planRemovals(existingRows.map(r => ({ row_key: r.vkey, vch_date: r.vch_date })), new Set(fileRows.keys()), fileCountByDate);
-    for (let i = 0; i < remove.length; i += 50) {
-      const { error } = await db.from('outstanding_vouchers').delete().in('vkey', remove.slice(i, i + 50));
-      if (error) throw error;
-    }
-    const removed = remove.length;
+
     for (let i = 0; i < toWrite.length; i += 500) {
       const { error } = await db.from('outstanding_vouchers').upsert(toWrite.slice(i, i + 500), { onConflict: 'vkey' });
       if (error) throw error;
@@ -136,9 +160,10 @@ export async function POST(req: NextRequest) {
     if (median >= 10 && quiet.length) warnings.push(`No payment vouchers are saved for ${quiet.reverse().join(', ')}, while about ${median} payments are posted on a normal day. The Day Book may have been exported before those payments were entered in Tally — bills they settle will still show as open. Export the Day Book again and upload it.`);
     if (changed) warnings.push(`${changed} voucher${changed === 1 ? ' was' : 's were'} edited in Tally since an earlier upload and ${changed === 1 ? 'has' : 'have'} been updated.`);
     if (removed) warnings.push(`${removed} voucher${removed === 1 ? '' : 's'} saved earlier ${removed === 1 ? 'is' : 'are'} no longer in Tally for these dates (deleted, cancelled or changed there) and ${removed === 1 ? 'was' : 'were'} removed — for example a debit note replaced when a lot was re-settled.`);
-    if (keptDates.length) warnings.push(`This file holds far fewer vouchers than were saved for ${keptDates.slice(0, 6).join(', ')}${keptDates.length > 6 ? ` and ${keptDates.length - 6} more date(s)` : ''}, so it looks like a filtered export; vouchers missing from it were kept.`);
+    if (!replaceExisting && keptDates.length) warnings.push(`This file holds far fewer vouchers than were saved for ${keptDates.slice(0, 6).join(', ')}${keptDates.length > 6 ? ` and ${keptDates.length - 6} more date(s)` : ''}, so it looks like a filtered export; vouchers missing from it were kept.`);
+    if (replaceExisting) warnings.push(`Replacement mode was used: all previously saved bill-wise vouchers dated ${from} through ${to} were replaced by the uploaded file.`);
 
-    const lastUpload = { fileName: str(body.fileName, 200), at: new Date().toISOString(), from, to, inFile: fileRows.size, added, changed, unchanged, removed, keptDates: keptDates.length };
+    const lastUpload = { fileName: str(body.fileName, 200), at: new Date().toISOString(), from, to, inFile: fileRows.size, added, changed, unchanged, removed, replaceExisting, keptDates: replaceExisting ? 0 : keptDates.length };
     const { data: snap, error } = await db.from('outstanding_snapshots').insert({
       file_name: lastUpload.fileName || null, period_from: ranges[0].from, period_to: ranges[ranges.length - 1].to, voucher_count: stored.length,
       summary: { ranges, lastUpload }, warnings: warnings.slice(0, 30), parties: result.parties, bills: result.bills, created_by: az.user?.id ?? null,

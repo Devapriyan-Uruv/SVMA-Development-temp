@@ -18,6 +18,7 @@ const SIDES:{key:Side;label:string;owe:string}[]=[{key:'creditor',label:'Credito
 export default function Outstanding(){
  const [data,setData]=useState<Data|null>(null),[loading,setLoading]=useState(true),[busy,setBusy]=useState(''),[error,setError]=useState('');
  const [scope,setScope]=useState<Scope>('local'),[side,setSide]=useState<Side>('creditor'),[q,setQ]=useState(''),[open,setOpen]=useState<string|null>(null),[showZero,setShowZero]=useState(false),[view,setView]=useState<'dashboard'|'parties'>('dashboard'),[dashScope,setDashScope]=useState<'all'|Scope>('all');
+ const [replaceExisting,setReplaceExisting]=useState(false);
 
  const load=()=>fetch('/api/finance/outstanding',{cache:'no-store'}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`Could not load (HTTP ${r.status}).`);setData(j.empty?null:j)}).catch(e=>setError(e instanceof Error?e.message:'Could not load.')).finally(()=>setLoading(false));
  useEffect(()=>{void load()},[]);
@@ -46,10 +47,14 @@ export default function Outstanding(){
    setBusy('Preparing…');await new Promise(r=>setTimeout(r,30));
    const c=engine.compactVouchers(vouchers);
    if(!c.vouchers.length)throw new Error(`This Day Book has ${c.total.toLocaleString('en-IN')} vouchers but no bill reference lines (New Ref / Agst Ref), so it cannot show which bill a payment settled. It was exported in Tally's summary layout — export it again as a detailed Day Book with bill-wise details, the same way as the earlier file that worked, and upload that.`);
-   const json=JSON.stringify({fileName:file.name,periodFrom:c.from,periodTo:c.to,totalVouchers:c.total,vouchers:c.vouchers});
+   if(replaceExisting){
+    const ok=window.confirm(`REPLACE EXISTING DAY BOOK DATA?\n\nThis will delete all currently saved bill-wise vouchers dated ${c.from} through ${c.to}, then save ${c.vouchers.length.toLocaleString('en-IN')} vouchers from "${file.name}".\n\nUse this for the temporary test file only. You can upload the original Tally Day Book afterward to restore the real data.\n\nContinue?`);
+    if(!ok){setBusy('');return;}
+   }
+   const json=JSON.stringify({fileName:file.name,periodFrom:c.from,periodTo:c.to,totalVouchers:c.total,replaceExisting,vouchers:c.vouchers});
    let body:BodyInit=json;const headers:Record<string,string>={'Content-Type':'application/json'};
    if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).blob();headers['Content-Type']='application/octet-stream';headers['x-body-encoding']='gzip'}
-   setBusy('Adding new vouchers and working out the outstanding…');
+   setBusy(replaceExisting?'Replacing saved vouchers for these dates…':'Adding new vouchers and working out the outstanding…');
    const r=await fetch('/api/finance/outstanding',{method:'POST',headers,body});
    const raw=await r.text();let j:any=null;try{j=raw?JSON.parse(raw):null}catch{j=null}
    if(!j)throw new Error(`The server did not return a result (HTTP ${r.status}${raw?'':', empty response'}). Please try again.`);
@@ -96,11 +101,12 @@ export default function Outstanding(){
   <PageHeader title="Creditors / Debtors" subtitle="Upload the Tally Day Book — outstanding by party and by bill / lot, split into Local and International" backHref="/finance" backLabel="Finance"/>
   <div className="card tight" style={{marginTop:6,display:'flex',gap:14,alignItems:'center',flexWrap:'wrap'}}>
    <label className="btn btn-primary" style={{cursor:busy?'wait':'pointer'}}><FileUp size={16}/>{data?'Add a file':'Upload a file'}<input type="file" accept=".xlsx,.xls" style={{display:'none'}} disabled={!!busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value=''}}/></label>
+   <label className="sub" style={{display:'flex',gap:7,alignItems:'center',maxWidth:310,color:replaceExisting?'#b42318':undefined}}><input type="checkbox" checked={replaceExisting} disabled={!!busy} onChange={e=>setReplaceExisting(e.target.checked)}/>Replace all saved vouchers for the uploaded dates</label>
    <div style={{display:'grid',gap:2}}>
     <span className="sub">{busy||(data?`Covers ${(data.ranges?.length?data.ranges:[{from:data.periodFrom,to:data.periodTo}]).map(r=>`${day(r.from)} to ${day(r.to)}`).join(' and ')}${data.vouchers?` • ${data.vouchers.toLocaleString('en-IN')} vouchers with bills`:''}`:loading?'Loading…':'No Day Book uploaded yet.')}</span>
     {!busy&&data?.sources?<span className="sub">{(['debtor','creditor'] as Side[]).map(sd=>{const so=data.sources![sd];const nm=sd==='debtor'?'Debtors':'Creditors';return `${nm}: ${so.kind==='tally_bills'?'Tally pending bills':so.kind==='tally_summary'?'Tally group summary (party balances only)':so.kind==='daybook'?'worked out from the Day Book':'no data'}${so.asOf?` as of ${day(so.asOf)}`:''}`}).join(' • ')}</span>:null}
     {!busy&&data?.lastUpload?<span className="sub">Last upload {data.lastUpload.fileName} ({new Date(data.lastUpload.at).toLocaleString('en-GB')}): <b>{data.lastUpload.added.toLocaleString('en-IN')} new</b>, {data.lastUpload.unchanged.toLocaleString('en-IN')} already there{data.lastUpload.changed?`, ${data.lastUpload.changed} updated`:''}{data.lastUpload.removed?`, ${data.lastUpload.removed} removed (no longer in Tally)`:''}.</span>:null}
-    {!busy?<span className="sub">Upload a Tally Day Book (detailed, with bill lines) or a Tally Outstandings export (Pending Bills / Group Summary). Uploading the same or an overlapping Day Book is safe — only new or edited vouchers are added.</span>:null}
+    {!busy?<span className="sub">Upload a Tally Day Book (detailed, with bill lines) or a Tally Outstandings export (Pending Bills / Group Summary). Normal upload adds or updates vouchers safely. Enable “Replace all saved vouchers” only when intentionally replacing the dates in the uploaded file; the app will ask for confirmation.</span>:null}
    </div>
   </div>
   {error?<div className="notice danger" style={{marginTop:10}}>{error}</div>:null}

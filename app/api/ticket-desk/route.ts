@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
       statsOnly = false
     ) => statsOnly
       ? 'id,ticket_no,status,due_at,deviations!inner(parameter_id)'
-      : `id,ticket_no,status,due_at,created_at,closed_at,root_cause,corrective_action,closure_comments,ticket_evidence(id,storage_path,file_name,mime_type,created_at),deviations!inner(id,parameter_id,severity,target_text,actual_text,created_at,${rec ? 'occurrence_count,' : ''})`;
+      : `id,ticket_no,status,due_at,created_at,closed_at,root_cause,corrective_action,closure_comments,ticket_evidence(id,storage_path,file_name,mime_type,created_at),deviations!inner(id,parameter_id,severity,target_text,actual_text,created_at${rec ? 'occurrence_count,' : ''})`;
 
     const pull = async (rec: boolean, statsOnly = false) => {
       let result: {

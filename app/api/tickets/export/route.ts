@@ -16,7 +16,7 @@ export async function GET(req:NextRequest){
   const db=supabaseAdmin(),modules=scope==='quality'?['quality']:['solvent','boiler'];
   const from=req.nextUrl.searchParams.get('from'),to=req.nextUrl.searchParams.get('to');
   // occurrence_count / last_observed_at exist only after sql/062 — retry without them so the download works either way.
-  const build=(withRecurrence:boolean)=>{let q=db.from('deviation_tickets').select(`*,deviations!inner(severity,target_text,actual_text,created_at,${withRecurrence?'occurrence_count,last_observed_at,':''}parameter_master!inner(name,source_serial,source_group,parameter_sections!inner(name,module)))`).in('deviations.parameter_master.parameter_sections.module',modules).order('created_at',{ascending:false}).limit(2000);
+  const build=(withRecurrence:boolean)=>{let q=db.from('deviation_tickets').select(`*,deviations!inner(severity,target_text,actual_text,created_at${withRecurrence?'occurrence_count,last_observed_at,':''}parameter_master!inner(name,source_serial,source_group,parameter_sections!inner(name,module)))`).in('deviations.parameter_master.parameter_sections.module',modules).order('created_at',{ascending:false}).limit(2000);
    if(from)q=q.gte('created_at',`${from}T00:00:00`);
    if(to)q=q.lte('created_at',`${to}T23:59:59`);
    return q};

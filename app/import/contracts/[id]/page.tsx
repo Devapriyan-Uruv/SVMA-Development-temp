@@ -3,22 +3,23 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Download, Plus, Trash2 } from 'lucide-react';
+import { Download, FileSpreadsheet, Plus, Trash2, X } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { StatusBadge } from '@/components/StatusBadge';
-import { DayBookUpload } from '../../DayBookUpload';
 import type {
   Cell,
   Settlement,
   Suggestion,
   LoadSuggestion,
   Invoice,
+  Boe,
 } from '@/lib/importSettlement/engine';
 
 type Payload = {
   contract: any;
   record: { id: string; refCode: string } | null;
   invoices: Invoice[];
+  boes: Boe[];
   settlement: Settlement;
   dayBook: {
     from: string | null;
@@ -117,6 +118,9 @@ export default function SettlementPage() {
   const [busy, setBusy] = useState(false);
 
   const [inv, setInv] = useState<Invoice[]>([]);
+  const [boes, setBoes] = useState<Boe[]>([]);
+  const [selectedBoeId, setSelectedBoeId] = useState('');
+  const [settlementModalOpen, setSettlementModalOpen] = useState(false);
   const [dates, setDates] = useState<Record<string, string>>({});
   const [erp, setErp] = useState({
     supplier: '',
@@ -146,6 +150,12 @@ export default function SettlementPage() {
 
       setInv(
         j.invoices.map((x: Invoice) => ({ ...x }))
+      );
+      setBoes(j.boes.map((x: Boe) => ({ ...x })));
+      setSelectedBoeId((current: string) =>
+        j.boes.some((x: Boe) => x.id === current)
+          ? current
+          : (j.boes[0]?.id || '')
       );
 
       setDates(
@@ -216,48 +226,43 @@ export default function SettlementPage() {
     }
   }
 
-  // Tally and ERP linking
-  // Tally and ERP linking
-const setLink = (
-  kind: 'tally' | 'erp',
-  refKey: string,
-  status: 'confirmed' | 'excluded' | null,
-  colKey?: string | null,
-  invoiceId?: string | null
-) =>
-  save(
-    {
-      links: [
-        {
-          kind,
-          refKey,
-          status,
-          colKey: colKey || null,
-          invoiceId: kind === 'tally' ? invoiceId || null : null,
-        },
-      ],
-    },
-    status == null
-      ? 'Reset.'
-      : status === 'confirmed'
-        ? 'Confirmed.'
-        : 'Excluded.'
-  );
+  // Tally and ERP decisions are always scoped to a specific BOE.
+  const setLink = (
+    kind: 'tally' | 'erp',
+    refKey: string,
+    status: 'confirmed' | 'excluded' | null,
+    colKey?: string | null,
+    boeId?: string | null
+  ) =>
+    save(
+      {
+        links: [
+          {
+            kind,
+            refKey,
+            status,
+            colKey: colKey || null,
+            boeId: status === 'confirmed' ? boeId || null : null,
+          },
+        ],
+      },
+      status == null
+        ? 'Reset.'
+        : status === 'confirmed'
+          ? 'Confirmed.'
+          : 'Excluded.'
+    );
 
-  // Manual cell override
-  const saveCell = (
-    invoiceId: string | null,
-    colKey: string
-  ) => {
+  // Manual overrides belong to one BOE, never to the whole invoice.
+  const saveCell = (boeId: string, colKey: string) => {
     const v = draft.trim().replace(/,/g, '');
-
     setEditing(null);
 
     void save(
       {
         overrides: [
           {
-            invoiceId,
+            boeId,
             colKey,
             value: v === '' ? null : Number(v),
           },
@@ -269,17 +274,30 @@ const setLink = (
 
   const s = d?.settlement;
   const saved =
-    !!d && d.invoices.every(x => x.id !== 'new');
+    !!d && d.invoices.every(x => x.id !== 'new') &&
+    d.boes.every(x => x.id !== 'new');
+  const selectedBoe = d?.boes.find(x => x.id === selectedBoeId) || null;
+  const selectedRow = s?.rows.find(x => x.boeId === selectedBoeId) || null;
+  const selectedPerTon = selectedBoeId ? s?.perTonByBoe[selectedBoeId] : null;
+  const selectedLoads = s?.loads.filter(x => x.boeId === selectedBoeId) || [];
+  const selectedLoadTotals = selectedLoads.reduce(
+    (totals, load) => ({
+      tons: totals.tons + Number(load.loadingTon.value || 0),
+      freight: totals.freight + Number(load.totFreight.value || 0),
+      purValue: totals.purValue + Number(load.purValue.value || 0),
+    }),
+    { tons: 0, freight: 0, purValue: 0 }
+  );
   const canEdit = !!d?.canEdit;
 
   // Editable settlement cell
   const cellEl = (
     c: Cell | undefined,
-    invoiceId: string | null,
+    boeId: string,
     key: string,
     text?: boolean
   ) => {
-    const k = `${invoiceId}|${key}`;
+    const k = `${boeId}|${key}`;
     const dot = DOT[c?.source || 'blank'];
 
     if (editing === k) {
@@ -288,7 +306,7 @@ const setLink = (
           autoFocus
           value={draft}
           onChange={e => setDraft(e.target.value)}
-          onBlur={() => saveCell(invoiceId, key)}
+          onBlur={() => saveCell(boeId, key)}
           onKeyDown={e => {
             if (e.key === 'Enter') {
               (e.target as HTMLInputElement).blur();
@@ -367,199 +385,84 @@ const setLink = (
     x => x.status === 'excluded'
   );
 
-  // Excel export - preserve existing worksheets
+  // Export only the currently selected BOE's independent settlement.
   async function excel() {
-    if (!d || !s) return;
+    if (!d || !s || !selectedBoeId || !selectedRow || !selectedBoe) return;
 
     const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const c = d.contract;
-
-    const head = [
-      ['SETTLEMENT SHEET — ' + c.supplierName],
-      [
-        `Contract ${s.header.contractNo} • ${s.header.commodity} • ${s.header.contractQty} • rate ${s.header.ratePerTon}`,
-      ],
-      [],
-    ];
-
     const expenseCols = BLOCKS[0].cols;
     const settlementCols = BLOCKS[1].cols;
+    const boeLabel = selectedBoe.boeNo || selectedBoe.id;
 
     const aoa: any[][] = [
-      ...head,
-
+      ['SETTLEMENT SHEET — ' + c.supplierName],
+      [`Contract ${s.header.contractNo} • Invoice ${selectedBoe.invNo} • BOE ${boeLabel}`],
+      [`BOE date: ${selectedBoe.boeDate || ''} • BOE quantity: ${selectedBoe.invQty ?? ''} MT`],
+      [],
       ['CONTRACT INFORMATION'],
-      [
-        '01 Contract No',
-        s.header.contractNo,
-        '02 Party',
-        s.header.party,
-      ],
-      [
-        '03 Commodity',
-        s.header.commodity,
-        '04 Contract Qty',
-        s.header.contractQty,
-        '05 Rate per ton',
-        s.header.ratePerTon,
-      ],
-
+      ['01 Contract No', s.header.contractNo, '02 Party', s.header.party],
+      ['03 Commodity', s.header.commodity, '04 Contract Qty', s.header.contractQty, '05 Rate per ton', s.header.ratePerTon],
+      [],
+      ['BOE INFORMATION'],
+      ['Invoice no', selectedBoe.invNo, 'BOE no', selectedBoe.boeNo || '', 'BOE date', selectedBoe.boeDate || ''],
+      ['BOE Qty (MT)', selectedBoe.invQty ?? '', 'Rate per MT', selectedBoe.ratePerTon ?? '', 'Invoice value USD', selectedBoe.invValueUsd ?? ''],
+      ['Advance paid USD', selectedBoe.advPaidUsd ?? '', 'Assessable value', selectedBoe.assessableValue ?? ''],
       [],
       ['EXPENSE DETAILS'],
       ['Column no.', ...expenseCols.map(x => x[1])],
       ['Description', ...expenseCols.map(x => x[2])],
-
-      ...s.rows.map(r => [
-        '',
-        ...expenseCols.map(([k]) => r.cells[k]?.value ?? ''),
-      ]),
-
-      [
-        'TOTAL',
-        ...expenseCols.map(([k]) =>
-          TEXT_KEYS.has(k) ? '' : s.totals[k] ?? ''
-        ),
-      ],
-
+      ['', ...expenseCols.map(([k]) => selectedRow.cells[k]?.value ?? '')],
       [],
       ['SETTLEMENT & DEBIT / CREDIT NOTE DETAILS'],
       ['Column no.', ...settlementCols.map(x => x[1])],
       ['Description', ...settlementCols.map(x => x[2])],
-
-      ...s.rows.map(r => [
-        '',
-        ...settlementCols.map(([k]) => r.cells[k]?.value ?? ''),
-      ]),
-
-      [
-        'TOTAL',
-        ...settlementCols.map(([k]) =>
-          TEXT_KEYS.has(k) ? '' : s.totals[k] ?? ''
-        ),
-      ],
-
+      ['', ...settlementCols.map(([k]) => selectedRow.cells[k]?.value ?? '')],
       [],
       ['PER TON COST'],
       ['Column no.', 39, 40, 41, 42],
-      [
-        'Description',
-        'Party amount',
-        'Total expenses',
-        'Received tons',
-        'Per ton cost',
-      ],
+      ['Description', 'Party amount', 'Total expenses', 'Received tons', 'Per ton cost'],
       [
         '',
-        s.perTon.partyAmount.value ?? '',
-        s.perTon.totalExp.value ?? '',
-        s.perTon.receivedTons.value ?? '',
-        s.perTon.perTonCost.value ?? '',
+        selectedPerTon?.partyAmount.value ?? '',
+        selectedPerTon?.totalExp.value ?? '',
+        selectedPerTon?.receivedTons.value ?? '',
+        selectedPerTon?.perTonCost.value ?? '',
       ],
     ];
 
     const w1 = XLSX.utils.aoa_to_sheet(aoa);
-
-    w1['!cols'] = [
-      { wch: 18 },
-      ...Array.from({ length: 21 }, () => ({ wch: 16 })),
-    ];
-
+    w1['!cols'] = [{ wch: 22 }, ...Array.from({ length: 22 }, () => ({ wch: 17 }))];
     XLSX.utils.book_append_sheet(wb, w1, 'Settlement');
 
-    // Received loads worksheet
     const w2 = XLSX.utils.aoa_to_sheet([
-      ['RECEIVED QTY LOAD-WISE DETAILS (from the ERP)'],
+      ['RECEIVED QTY LOAD-WISE DETAILS (BOE allocated ERP receipts)'],
       [],
-      [
-        'Date',
-        'RN no',
-        'Vehicle no',
-        'Loading ton',
-        'LF per ton',
-        'Tot. freight',
-        'Pur. value',
-      ],
-
-      ...s.loads.map(l => [
-        l.date,
-        l.rnNo,
-        l.vehicleNo,
-        l.loadingTon.value,
-        l.lfPerTon.value ?? '',
-        l.totFreight.value ?? '',
-        l.purValue.value ?? '',
+      ['Date', 'RN no', 'Vehicle no', 'Loading ton', 'LF per ton', 'Tot. freight', 'Pur. value'],
+      ...selectedLoads.map(l => [
+        l.date, l.rnNo, l.vehicleNo, l.loadingTon.value,
+        l.lfPerTon.value ?? '', l.totFreight.value ?? '', l.purValue.value ?? '',
       ]),
-
-      [
-        'Total',
-        '',
-        '',
-        s.loadTotals.tons,
-        '',
-        s.loadTotals.freight,
-        s.loadTotals.purValue,
-      ],
+      ['Total', '', '', selectedLoadTotals.tons, '', selectedLoadTotals.freight, selectedLoadTotals.purValue],
     ]);
-
-    w2['!cols'] = [
-      { wch: 12 },
-      { wch: 16 },
-      { wch: 14 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 14 },
-    ];
-
+    w2['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, w2, 'Received loads');
 
-    // Day Book evidence worksheet
     const w3 = XLSX.utils.aoa_to_sheet([
-      ['DAY BOOK LINES BEHIND THE FIGURES'],
+      ['DAY BOOK LINES BEHIND THIS BOE'],
       [],
-      [
-        'Date',
-        'Voucher type',
-        'Voucher no',
-        'Ledger',
-        'Amount',
-        'Counted as',
-        'Status',
-        'Evidence',
-        'Narration',
-      ],
-
-      ...s.suggestions.map(x => [
-        x.date,
-        x.vchType,
-        x.vchNo,
-        x.ledger,
-        x.amount,
-        x.colKey || '',
-        x.status,
-        x.evidence.join('; '),
-        x.narration,
+      ['Date', 'Voucher type', 'Voucher no', 'Ledger', 'Amount', 'Counted as', 'Status', 'Evidence', 'Narration'],
+      ...s.suggestions.filter(x => x.boeId === selectedBoeId).map(x => [
+        x.date, x.vchType, x.vchNo, x.ledger, x.amount, x.colKey || '',
+        x.status, x.evidence.join('; '), x.narration,
       ]),
     ]);
-
-    w3['!cols'] = [
-      { wch: 12 },
-      { wch: 18 },
-      { wch: 14 },
-      { wch: 34 },
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 11 },
-      { wch: 30 },
-      { wch: 50 },
-    ];
-
     XLSX.utils.book_append_sheet(wb, w3, 'Day Book lines');
 
     XLSX.writeFile(
       wb,
-      `Import_Settlement_${String(c.contractNumber).replace(/[^A-Za-z0-9]+/g, '_')}.xlsx`
+      `Import_Settlement_${String(c.contractNumber).replace(/[^A-Za-z0-9]+/g, '_')}_BOE_${String(boeLabel).replace(/[^A-Za-z0-9]+/g, '_')}.xlsx`
     );
   }
 
@@ -618,7 +521,7 @@ const setLink = (
               status={c.status === 'Confirmed' ? 'ok' : 'warn'}
               label={c.status}
             />
-            <button className="btn btn-outline" onClick={excel}>
+            <button className="btn btn-outline" onClick={excel} disabled={!selectedRow}>
               <Download size={15} /> Excel
             </button>
           </div>
@@ -758,268 +661,162 @@ const setLink = (
         ) : null}
       </section>
 
-      {/* Invoices and BOE */}
+      {/* Invoice master and independent BOE allocations */}
       <section className="card" style={{ marginTop: 14 }}>
-        <div className="section-title">
-          Invoices and Bills of Entry
-        </div>
-
-        <div
-          className="table-wrap"
-          style={{ border: 0, marginTop: 8 }}
-        >
+        <div className="section-title">Invoices</div>
+        <p className="sub">Save invoices first. Each invoice can then have multiple BOEs, each with its own quantity and value allocation.</p>
+        <div className="table-wrap" style={{ border: 0, marginTop: 8 }}>
           <table>
             <thead>
               <tr>
-                <th>Invoice no</th>
-                <th>Qty (MT)</th>
-                <th>Rate / MT</th>
-                <th>Adv. paid USD</th>
-                <th>BOE no</th>
-                <th>BOE date</th>
-                <th>Assessable value (BOE)</th>
-                <th />
+                <th>Invoice no</th><th>Invoice qty (MT)</th><th>Rate / MT</th>
+                <th>Invoice value USD</th><th>Advance paid USD</th><th />
               </tr>
             </thead>
-
             <tbody>
               {inv.map((x, i) => (
-                <tr key={x.id + i}>
-                  <td>
-                    <input
-                      value={x.invNo}
-                      disabled={!canEdit}
-                      onChange={e =>
-                        setInv(
-                          inv.map((y, j) =>
-                            j === i
-                              ? { ...y, invNo: e.target.value }
-                              : y
-                          )
-                        )
-                      }
-                      style={{ width: 130 }}
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="number"
-                      step="any"
-                      value={x.invQty ?? ''}
-                      disabled={!canEdit}
-                      onChange={e =>
-                        setInv(
-                          inv.map((y, j) =>
-                            j === i
-                              ? {
-                                  ...y,
-                                  invQty:
-                                    e.target.value === ''
-                                      ? null
-                                      : Number(e.target.value),
-                                }
-                              : y
-                          )
-                        )
-                      }
-                      style={{ width: 90 }}
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="number"
-                      step="any"
-                      value={x.ratePerTon ?? ''}
-                      disabled={!canEdit}
-                      onChange={e =>
-                        setInv(
-                          inv.map((y, j) =>
-                            j === i
-                              ? {
-                                  ...y,
-                                  ratePerTon:
-                                    e.target.value === ''
-                                      ? null
-                                      : Number(e.target.value),
-                                }
-                              : y
-                          )
-                        )
-                      }
-                      style={{ width: 90 }}
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="number"
-                      step="any"
-                      value={x.advPaidUsd ?? ''}
-                      disabled={!canEdit}
-                      onChange={e =>
-                        setInv(
-                          inv.map((y, j) =>
-                            j === i
-                              ? {
-                                  ...y,
-                                  advPaidUsd:
-                                    e.target.value === ''
-                                      ? null
-                                      : Number(e.target.value),
-                                }
-                              : y
-                          )
-                        )
-                      }
-                      style={{ width: 100 }}
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      value={x.boeNo || ''}
-                      disabled={!canEdit}
-                      onChange={e =>
-                        setInv(
-                          inv.map((y, j) =>
-                            j === i
-                              ? { ...y, boeNo: e.target.value }
-                              : y
-                          )
-                        )
-                      }
-                      style={{ width: 110 }}
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="date"
-                      value={x.boeDate || ''}
-                      disabled={!canEdit}
-                      onChange={e =>
-                        setInv(
-                          inv.map((y, j) =>
-                            j === i
-                              ? { ...y, boeDate: e.target.value }
-                              : y
-                          )
-                        )
-                      }
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="number"
-                      step="any"
-                      value={x.assessableValue ?? ''}
-                      disabled={!canEdit}
-                      onChange={e =>
-                        setInv(
-                          inv.map((y, j) =>
-                            j === i
-                              ? {
-                                  ...y,
-                                  assessableValue:
-                                    e.target.value === ''
-                                      ? null
-                                      : Number(e.target.value),
-                                }
-                              : y
-                          )
-                        )
-                      }
-                      style={{ width: 130 }}
-                    />
-                  </td>
-
-                  <td>
-                    {canEdit ? (
-                      <button
-                        className="btn btn-outline"
-                        title="Remove"
-                        onClick={() =>
-                          x.id === 'new' || !x.id
-                            ? setInv(
-                                inv.filter((_, j) => j !== i)
-                              )
-                            : void save(
-                                {
-                                  invoices: [
-                                    { id: x.id, delete: true },
-                                  ],
-                                },
-                                'Invoice removed.'
-                              )
-                        }
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    ) : null}
-                  </td>
+                <tr key={`${x.id}-${i}`}>
+                  <td><input value={x.invNo} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, invNo:e.target.value} : y))} style={{width:130}} /></td>
+                  <td><input type="number" step="any" value={x.invQty ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, invQty:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:100}} /></td>
+                  <td><input type="number" step="any" value={x.ratePerTon ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, ratePerTon:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:100}} /></td>
+                  <td><input type="number" step="any" value={x.invValueUsd ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, invValueUsd:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:120}} /></td>
+                  <td><input type="number" step="any" value={x.advPaidUsd ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, advPaidUsd:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:120}} /></td>
+                  <td>{canEdit ? <button className="btn btn-outline" title="Remove invoice" onClick={() => x.id === 'new' ? setInv(inv.filter((_,j) => j !== i)) : void save({invoices:[{id:x.id,delete:true}]},'Invoice removed.') }><Trash2 size={14}/></button> : null}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {canEdit ? <div className="action-row" style={{marginTop:8}}>
+          <button className="btn btn-outline" onClick={() => setInv([...inv,{id:'new',invNo:'',invQty:null,ratePerTon:c.unitPrice == null ? null : Number(c.unitPrice),invValueUsd:null,advPaidUsd:null,boeNo:null,boeDate:null,assessableValue:null}])}><Plus size={14}/> Add invoice</button>
+          <button className="btn btn-primary" disabled={busy} onClick={() => save({invoices:inv.map(x => ({...x, boeNo:null, boeDate:null, assessableValue:null}))},'Invoices saved. Save again after the page refreshes before adding BOEs.')}>Save invoices</button>
+        </div> : null}
+      </section>
 
-        {canEdit ? (
-          <div className="action-row" style={{ marginTop: 8 }}>
-            <button
-              className="btn btn-outline"
-              onClick={() =>
-                setInv([
-                  ...inv,
-                  {
-                    id: 'new',
-                    invNo: '',
-                    invQty: null,
-                    ratePerTon:
-                      c.unitPrice == null
-                        ? null
-                        : Number(c.unitPrice),
-                    invValueUsd: null,
-                    advPaidUsd: null,
-                    boeNo: null,
-                    boeDate: null,
-                    assessableValue: null,
-                  },
-                ])
-              }
-            >
-              <Plus size={14} /> Add invoice
-            </button>
-
-            <button
-              className="btn btn-primary"
-              disabled={busy}
-              onClick={() =>
-                save(
-                  { invoices: inv.map(x => ({ ...x })) },
-                  'Invoices saved.'
-                )
-              }
-            >
-              Save invoices
-            </button>
-          </div>
-        ) : null}
+      <section className="card" style={{marginTop:14}}>
+        <div className="section-title">Bills of Entry — BOE-wise allocation</div>
+        <p className="sub">Allocate only the quantity and invoice value belonging to each BOE. These values are not copied in full from the invoice.</p>
+        {!inv.some(x => x.id !== 'new') ? <div className="notice warn">Save at least one invoice before adding BOEs.</div> : null}
+        <div className="table-wrap" style={{border:0,marginTop:8}}>
+          <table>
+            <thead><tr><th>Invoice</th><th>BOE no</th><th>BOE date</th><th>Allocated qty (MT)</th><th>Rate / MT</th><th>Allocated invoice value USD</th><th>Advance paid USD</th><th>Assessable value</th><th/></tr></thead>
+            <tbody>
+              {boes.map((b,i) => (
+                <tr key={`${b.id}-${i}`}>
+                  <td><select disabled={!canEdit} value={b.invoiceId} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,invoiceId:e.target.value,invNo:inv.find(v=>v.id===e.target.value)?.invNo || ''}:x))}>
+                    {inv.filter(x=>x.id!=='new').map(x=><option key={x.id} value={x.id}>{x.invNo || 'Unnamed invoice'}</option>)}
+                  </select></td>
+                  <td><input value={b.boeNo || ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,boeNo:e.target.value}:x))} style={{width:110}}/></td>
+                  <td><input type="date" value={b.boeDate || ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,boeDate:e.target.value}:x))}/></td>
+                  <td><input type="number" step="any" value={b.invQty ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,invQty:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:105}}/></td>
+                  <td><input type="number" step="any" value={b.ratePerTon ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,ratePerTon:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:100}}/></td>
+                  <td><input type="number" step="any" value={b.invValueUsd ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,invValueUsd:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:130}}/></td>
+                  <td><input type="number" step="any" value={b.advPaidUsd ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,advPaidUsd:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:120}}/></td>
+                  <td><input type="number" step="any" value={b.assessableValue ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,assessableValue:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:130}}/></td>
+                  <td>{canEdit?<button className="btn btn-outline" title="Remove BOE" onClick={()=>b.id==='new'?setBoes(boes.filter((_,j)=>j!==i)):void save({boes:[{id:b.id,delete:true}]},'BOE removed.')}><Trash2 size={14}/></button>:null}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {canEdit ? <div className="action-row" style={{marginTop:8}}>
+          <button className="btn btn-outline" disabled={!inv.some(x=>x.id!=='new')} onClick={()=>{
+            const invoice=inv.find(x=>x.id!=='new');
+            if(!invoice) return;
+            setBoes([...boes,{id:'new',invoiceId:invoice.id,invNo:invoice.invNo,boeNo:'',boeDate:null,invQty:null,ratePerTon:invoice.ratePerTon,invValueUsd:null,advPaidUsd:null,assessableValue:null}]);
+          }}><Plus size={14}/> Add BOE</button>
+          <button className="btn btn-primary" disabled={busy || boes.some(x=>x.id==='new' && !x.invoiceId)} onClick={()=>save({boes:boes.map(x=>({...x}))},'BOE allocations saved.')} >Save BOE allocations</button>
+        </div>:null}
       </section>
 
       {/* =================================================
           SETTLEMENT SHEET - BOX LAYOUT
       ================================================= */}
 
-      <section className="card svma-sheet-card">
+      <section className="card" style={{ marginTop: 14 }}>
+        <div className="section-title">BOE settlement sheets</div>
+        <p className="sub">
+          Select a BOE and open its independent 42-field settlement sheet.
+          Each BOE keeps its own calculations, allocations and manual values.
+        </p>
+        {!d.boes.length ? (
+          <div className="notice warn">
+            Add and save a BOE allocation to create its settlement sheet.
+          </div>
+        ) : (
+          <div className="action-row" style={{ marginTop: 10, alignItems: 'end' }}>
+            <div className="field" style={{ maxWidth: 420, flex: '1 1 280px' }}>
+              <label>Bill of Entry</label>
+              <select
+                value={selectedBoeId}
+                onChange={e => setSelectedBoeId(e.target.value)}
+              >
+                {d.boes.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.boeNo || 'BOE without number'} · {b.invNo} · {b.invQty ?? '—'} MT
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={!selectedBoeId}
+              onClick={() => setSettlementModalOpen(true)}
+            >
+              <FileSpreadsheet size={15} /> Open settlement sheet
+            </button>
+          </div>
+        )}
+      </section>
+
+      {settlementModalOpen && selectedBoe ? (
+        <div
+          className="svma-modal-backdrop"
+          role="presentation"
+          onMouseDown={e => {
+            if (e.target === e.currentTarget) setSettlementModalOpen(false);
+          }}
+        >
+          <div
+            className="svma-modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="svma-modal-title"
+          >
+            <div className="svma-modal-toolbar">
+              <div>
+                <h2 id="svma-modal-title">BOE Settlement Sheet</h2>
+                <p>
+                  {selectedBoe.boeNo || 'BOE without number'} · Invoice {selectedBoe.invNo}
+                </p>
+              </div>
+              <div className="action-row">
+                <button
+                  className="btn btn-outline"
+                  type="button"
+                  onClick={excel}
+                  disabled={!selectedRow}
+                >
+                  <Download size={14} /> Excel
+                </button>
+                <button
+                  className="btn btn-outline svma-modal-close"
+                  type="button"
+                  aria-label="Close settlement sheet"
+                  onClick={() => setSettlementModalOpen(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <section className="card svma-sheet-card">
 
         {/* Header */}
         <div className="svma-sheet-title">
           <div>
-            <h2>SETTLEMENT SHEET</h2>
-            <p>Import Contract Settlement & Expense Statement</p>
+            <h2>IMPORT CONTRACT SETTLEMENT &amp; EXPENSE STATEMENT</h2>
+            <p>Import Contract Settlement & Expense Statement · {selectedBoe ? `BOE ${selectedBoe.boeNo || '—'} / Invoice ${selectedBoe.invNo}` : 'No BOE selected'}</p>
           </div>
 
           <span className="svma-sheet-contract">
@@ -1034,6 +831,7 @@ const setLink = (
           </div>
         ) : null}
 
+        {!selectedBoeId ? <div className="notice warn" style={{margin:14}}>Select or create a BOE to view its settlement sheet.</div> : null}
         {s!.notes.map((n, i) => (
           <div
             key={i}
@@ -1057,7 +855,9 @@ const setLink = (
               ['02 · PARTY NAME', s!.header.party],
               ['03 · COMMODITY', s!.header.commodity],
               ['04 · CONTRACT QTY', s!.header.contractQty],
-              ['05 · RATE PER TON USD', s!.header.ratePerTon],
+              ['05 · RATE PER TON USD', selectedBoe?.ratePerTon ?? s!.header.ratePerTon],
+              ['06 · SELECTED BOE', selectedBoe?.boeNo || '—'],
+              ['07 · BOE QTY (MT)', selectedBoe?.invQty ?? '—'],
             ].map(([label, value]) => (
               <div className="svma-info-box" key={label}>
                 <span>{label}</span>
@@ -1105,8 +905,8 @@ const setLink = (
                 </thead>
 
                 <tbody>
-                  {s!.rows.map(r => (
-                    <tr key={r.invoiceId}>
+                  {(selectedRow ? [selectedRow] : []).map(r => (
+                    <tr key={r.boeId}>
                       {b.cols.map(([k]) => (
                         <td
                           key={k}
@@ -1118,7 +918,7 @@ const setLink = (
                         >
                           {cellEl(
                             r.cells[k],
-                            r.invoiceId,
+                            r.boeId,
                             k,
                             TEXT_KEYS.has(k)
                           )}
@@ -1127,7 +927,7 @@ const setLink = (
                     </tr>
                   ))}
 
-                  {s!.rows.length > 0 ? (
+                  {selectedRow ? (
                     <tr className="svma-total-row">
                       {b.cols.map(([k], i) => (
                         <td key={k}>
@@ -1135,7 +935,7 @@ const setLink = (
                             ? 'TOTAL'
                             : TEXT_KEYS.has(k)
                               ? ''
-                              : inr(s!.totals[k])}
+                              : inr(selectedRow?.cells[k]?.value)}
                         </td>
                       ))}
                     </tr>
@@ -1182,7 +982,7 @@ const setLink = (
                     ] as const
                   ).map(k => (
                     <td key={k} className="svma-number-cell">
-                      {cellEl(s!.perTon[k], null, k)}
+                      {selectedBoeId ? cellEl(selectedPerTon?.[k], selectedBoeId, k) : '—'}
                     </td>
                   ))}
                 </tr>
@@ -1218,14 +1018,14 @@ const setLink = (
               </thead>
 
               <tbody>
-                {!s!.loads.length ? (
+                {!selectedLoads.length ? (
                   <tr>
                     <td colSpan={6} className="svma-empty-cell">
                       No ERP receipts confirmed yet — confirm them below.
                     </td>
                   </tr>
                 ) : (
-                  s!.loads.map(l => (
+                  selectedLoads.map(l => (
                     <tr key={l.rnNo}>
                       <td>{day(l.date)}</td>
                       <td>{l.vehicleNo}</td>
@@ -1247,7 +1047,7 @@ const setLink = (
                         >
                           {cellEl(
                             l[f],
-                            null,
+                            selectedBoeId,
                             `load:${l.rnNo}:${f}`
                           )}
                         </td>
@@ -1256,23 +1056,23 @@ const setLink = (
                   ))
                 )}
 
-                {s!.loads.length > 0 ? (
+                {selectedLoads.length > 0 ? (
                   <tr className="svma-total-row">
                     <td>TOTAL</td>
                     <td />
 
                     <td className="svma-number-cell">
-                      {inr(s!.loadTotals.tons, 3)}
+                      {inr(selectedLoadTotals.tons, 3)}
                     </td>
 
                     <td />
 
                     <td className="svma-number-cell">
-                      {inr(s!.loadTotals.freight, 0)}
+                      {inr(selectedLoadTotals.freight, 0)}
                     </td>
 
                     <td className="svma-number-cell">
-                      {inr(s!.loadTotals.purValue, 0)}
+                      {inr(selectedLoadTotals.purValue, 0)}
                     </td>
                   </tr>
                 ) : null}
@@ -1300,40 +1100,7 @@ const setLink = (
               </p>
             ) : (
               <>
-                {canEdit &&
-                s!.loadSuggestions.some(
-                  x => x.status === 'suggested'
-                ) ? (
-                  <button
-                    className="btn btn-outline"
-                    disabled={busy}
-                    style={{ marginBottom: 8 }}
-                    onClick={() =>
-                      save(
-                        {
-                          links: s!.loadSuggestions
-                            .filter(
-                              x => x.status === 'suggested'
-                            )
-                            .map(x => ({
-                              kind: 'erp',
-                              refKey: x.rnNo,
-                              status: 'confirmed',
-                            })),
-                        },
-                        'All suggested receipts confirmed.'
-                      )
-                    }
-                  >
-                    Confirm all{' '}
-                    {
-                      s!.loadSuggestions.filter(
-                        x => x.status === 'suggested'
-                      ).length
-                    }{' '}
-                    suggested
-                  </button>
-                ) : null}
+                <p className="sub">Assign each receipt to its actual BOE before confirming it. Receipts are never split or distributed automatically.</p>
 
                 <div className="table-wrap" style={{ border: 0 }}>
                   <table>
@@ -1345,6 +1112,7 @@ const setLink = (
                         <th>Supplier</th>
                         <th>Product</th>
                         <th style={th}>MT</th>
+                        <th>Allocate to BOE</th>
                         <th>Status</th>
                         <th />
                       </tr>
@@ -1365,6 +1133,15 @@ const setLink = (
                             </td>
 
                             <td>
+                              {canEdit ? <select
+                                value={invoicePick[`erp:${x.rnNo}`] ?? x.boeId ?? ''}
+                                onChange={e=>setInvoicePick({...invoicePick,[`erp:${x.rnNo}`]:e.target.value})}
+                              >
+                                <option value="">— choose BOE —</option>
+                                {d.boes.map(b=><option key={b.id} value={b.id}>{b.boeNo || 'BOE'} · {b.invNo}</option>)}
+                              </select> : (d.boes.find(b=>b.id===x.boeId)?.boeNo || 'Unallocated')}
+                            </td>
+                            <td>
                               <StatusBadge
                                 status={
                                   x.status === 'confirmed'
@@ -1380,19 +1157,22 @@ const setLink = (
                             <td>
                               {canEdit ? (
                                 <span className="action-row">
-                                  {x.status !== 'confirmed' ? (
+                                  {x.status !== 'confirmed' ||
+                                  (invoicePick[`erp:${x.rnNo}`] ?? x.boeId ?? '') !== (x.boeId || '') ? (
                                     <button
                                       className="btn btn-outline"
-                                      disabled={busy}
+                                      disabled={busy || !(invoicePick[`erp:${x.rnNo}`] || x.boeId)}
                                       onClick={() =>
                                         setLink(
                                           'erp',
                                           x.rnNo,
-                                          'confirmed'
+                                          'confirmed',
+                                          null,
+                                          invoicePick[`erp:${x.rnNo}`] || x.boeId
                                         )
                                       }
                                     >
-                                      Confirm
+                                      {x.status === 'confirmed' ? 'Update BOE' : 'Confirm'}
                                     </button>
                                   ) : null}
 
@@ -1456,7 +1236,10 @@ const setLink = (
             <em>Click a figure to type over it.</em>
           ) : null}
         </div>
-      </section>
+            </section>
+          </div>
+        </div>
+      ) : null}
 
       {/* =================================================
           DAY BOOK EVIDENCE - ORIGINAL FUNCTIONALITY
@@ -1520,7 +1303,7 @@ const setLink = (
                         <th>Ledger</th>
                         <th style={th}>Amount</th>
                         <th>Counted as</th>
-                         <th>Invoice</th>
+                         <th>Allocate to BOE</th>
                         <th>Why</th>
                         <th />
                       </tr>
@@ -1603,39 +1386,22 @@ const setLink = (
                             )}
                           </td>
 
-                          {/* Invoice selection */}
-<td>
-  {canEdit && x.status !== 'excluded' &&
-  inv.filter(i => i.id !== 'new').length > 1 ? (
-    <select
-      value={invoicePick[x.key] ?? x.invoiceId ?? ''}
-      onChange={e =>
-        setInvoicePick({
-          ...invoicePick,
-          [x.key]: e.target.value,
-        })
-      }
-    >
-      <option value="">— choose invoice —</option>
+                          {/* Explicit BOE allocation */}
+                          <td>
+                            {canEdit && x.status !== 'excluded' ? (
+                              <select
+                                value={invoicePick[`tally:${x.key}`] ?? x.boeId ?? ''}
+                                onChange={e=>setInvoicePick({...invoicePick,[`tally:${x.key}`]:e.target.value})}
+                              >
+                                <option value="">— choose BOE —</option>
+                                {d.boes.map(b=><option key={b.id} value={b.id}>{b.boeNo || 'BOE'} · {b.invNo}</option>)}
+                              </select>
+                            ) : (
+                              d.boes.find(b=>b.id===x.boeId)?.boeNo || 'Unallocated'
+                            )}
+                          </td>
 
-      {inv
-        .filter(i => i.id !== 'new')
-        .map(i => (
-          <option key={i.id} value={i.id}>
-            {i.invNo || 'Unnamed invoice'}
-            {i.boeNo ? ` • BOE ${i.boeNo}` : ''}
-          </option>
-        ))}
-    </select>
-  ) : (
-    inv.find(i => i.id === x.invoiceId)?.invNo ||
-    (inv.filter(i => i.id !== 'new').length === 1
-      ? inv.find(i => i.id !== 'new')?.invNo
-      : '—')
-  )}
-</td>
-
-{/* Existing evidence */}
+                          {/* Existing evidence */}
 <td className="sub">
   {x.evidence.join('; ')}
 </td>
@@ -1649,17 +1415,15 @@ const setLink = (
                                     disabled={
   busy ||
   !(pick[x.key] ?? x.colKey) ||
-  (
-    inv.filter(i => i.id !== 'new').length > 1 &&
-    !(invoicePick[x.key] ?? x.invoiceId)
-  )
+  !(invoicePick[`tally:${x.key}`] ?? x.boeId)
 }
                                     onClick={() =>
                                       setLink(
                                         'tally',
                                         x.key,
                                         'confirmed',
-                                        pick[x.key] ?? x.colKey
+                                        pick[x.key] ?? x.colKey,
+                                        invoicePick[`tally:${x.key}`] ?? x.boeId
                                       )
                                     }
                                   >
@@ -1717,6 +1481,67 @@ const setLink = (
       ================================================= */}
 
       <style jsx global>{`
+        .svma-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          background: rgba(15, 23, 42, 0.68);
+          backdrop-filter: blur(3px);
+        }
+
+        .svma-modal-dialog {
+          display: flex;
+          flex-direction: column;
+          width: min(1500px, 100%);
+          max-height: calc(100vh - 40px);
+          overflow: hidden;
+          border-radius: 14px;
+          background: #f8fafc;
+          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+        }
+
+        .svma-modal-toolbar {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 14px 18px;
+          border-bottom: 1px solid #dbe2ea;
+          background: #fff;
+        }
+
+        .svma-modal-toolbar h2 {
+          margin: 0;
+          color: #172033;
+          font-size: 17px;
+          font-weight: 750;
+        }
+
+        .svma-modal-toolbar p {
+          margin: 4px 0 0;
+          color: #64748b;
+          font-size: 12px;
+        }
+
+        .svma-modal-close {
+          min-width: 38px;
+          padding: 8px !important;
+        }
+
+        .svma-modal-dialog > .svma-sheet-card {
+          overflow-y: auto;
+          min-height: 0;
+          border: 0;
+          border-radius: 0;
+        }
+
         .svma-sheet-card {
           padding: 0 !important;
           overflow: hidden;
@@ -1989,6 +1814,21 @@ const setLink = (
         }
 
         @media (max-width: 700px) {
+          .svma-modal-backdrop {
+            padding: 0;
+            align-items: stretch;
+          }
+
+          .svma-modal-dialog {
+            width: 100%;
+            max-height: 100dvh;
+            border-radius: 0;
+          }
+
+          .svma-modal-toolbar {
+            padding: 12px;
+          }
+
           .svma-sheet-title {
             padding: 16px;
             align-items: flex-start;
