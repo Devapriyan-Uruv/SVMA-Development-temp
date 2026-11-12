@@ -662,113 +662,351 @@ export default function SettlementPage() {
       </section>
 
       {/* Invoice master and independent BOE allocations */}
-      <section className="card" style={{ marginTop: 14 }}>
-        <div className="section-title">Invoices</div>
-        <p className="sub">Save invoices first. Each invoice can then have multiple BOEs, each with its own quantity and value allocation.</p>
-        <div className="table-wrap" style={{ border: 0, marginTop: 8 }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Invoice no</th><th>Invoice qty (MT)</th><th>Rate / MT</th>
-                <th>Invoice value USD</th><th>Advance paid USD</th><th />
-              </tr>
-            </thead>
-            <tbody>
-              {inv.map((x, i) => (
-                <tr key={`${x.id}-${i}`}>
-                  <td><input value={x.invNo} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, invNo:e.target.value} : y))} style={{width:130}} /></td>
-                  <td><input type="number" step="any" value={x.invQty ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, invQty:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:100}} /></td>
-                  <td><input type="number" step="any" value={x.ratePerTon ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, ratePerTon:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:100}} /></td>
-                  <td><input type="number" step="any" value={x.invValueUsd ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, invValueUsd:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:120}} /></td>
-                  <td><input type="number" step="any" value={x.advPaidUsd ?? ''} disabled={!canEdit} onChange={e => setInv(inv.map((y,j) => j === i ? {...y, advPaidUsd:e.target.value === '' ? null : Number(e.target.value)} : y))} style={{width:120}} /></td>
-                  <td>{canEdit ? <button className="btn btn-outline" title="Remove invoice" onClick={() => x.id === 'new' ? setInv(inv.filter((_,j) => j !== i)) : void save({invoices:[{id:x.id,delete:true}]},'Invoice removed.') }><Trash2 size={14}/></button> : null}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {canEdit ? <div className="action-row" style={{marginTop:8}}>
-          <button className="btn btn-outline" onClick={() => setInv([...inv,{id:'new',invNo:'',invQty:null,ratePerTon:c.unitPrice == null ? null : Number(c.unitPrice),invValueUsd:null,advPaidUsd:null,boeNo:null,boeDate:null,assessableValue:null}])}><Plus size={14}/> Add invoice</button>
-          <button className="btn btn-primary" disabled={busy} onClick={() => save({invoices:inv.map(x => ({...x, boeNo:null, boeDate:null, assessableValue:null}))},'Invoices saved. Save again after the page refreshes before adding BOEs.')}>Save invoices</button>
-        </div> : null}
-      </section>
+      
+<section className="card" style={{ marginTop: 14 }}>
+  {/* Section heading and top-right actions */}
+  <div
+    style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 12,
+      flexWrap: 'wrap',
+    }}
+  >
+    <div className="section-title">
+      Bills of Entry — BOE-wise allocation
+    </div>
 
-      <section className="card" style={{marginTop:14}}>
-        <div className="section-title">Bills of Entry — BOE-wise allocation</div>
-        <p className="sub">Allocate only the quantity and invoice value belonging to each BOE. These values are not copied in full from the invoice.</p>
-        {!inv.some(x => x.id !== 'new') ? <div className="notice warn">Save at least one invoice before adding BOEs.</div> : null}
-        <div className="table-wrap" style={{border:0,marginTop:8}}>
-          <table>
-            <thead><tr><th>Invoice</th><th>BOE no</th><th>BOE date</th><th>Allocated qty (MT)</th><th>Rate / MT</th><th>Allocated invoice value USD</th><th>Advance paid USD</th><th>Assessable value</th><th/></tr></thead>
-            <tbody>
-              {boes.map((b,i) => (
-                <tr key={`${b.id}-${i}`}>
-                  <td><select disabled={!canEdit} value={b.invoiceId} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,invoiceId:e.target.value,invNo:inv.find(v=>v.id===e.target.value)?.invNo || ''}:x))}>
-                    {inv.filter(x=>x.id!=='new').map(x=><option key={x.id} value={x.id}>{x.invNo || 'Unnamed invoice'}</option>)}
-                  </select></td>
-                  <td><input value={b.boeNo || ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,boeNo:e.target.value}:x))} style={{width:110}}/></td>
-                  <td><input type="date" value={b.boeDate || ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,boeDate:e.target.value}:x))}/></td>
-                  <td><input type="number" step="any" value={b.invQty ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,invQty:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:105}}/></td>
-                  <td><input type="number" step="any" value={b.ratePerTon ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,ratePerTon:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:100}}/></td>
-                  <td><input type="number" step="any" value={b.invValueUsd ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,invValueUsd:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:130}}/></td>
-                  <td><input type="number" step="any" value={b.advPaidUsd ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,advPaidUsd:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:120}}/></td>
-                  <td><input type="number" step="any" value={b.assessableValue ?? ''} disabled={!canEdit} onChange={e=>setBoes(boes.map((x,j)=>j===i?{...x,assessableValue:e.target.value===''?null:Number(e.target.value)}:x))} style={{width:130}}/></td>
-                  <td>{canEdit?<button className="btn btn-outline" title="Remove BOE" onClick={()=>b.id==='new'?setBoes(boes.filter((_,j)=>j!==i)):void save({boes:[{id:b.id,delete:true}]},'BOE removed.')}><Trash2 size={14}/></button>:null}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {canEdit ? <div className="action-row" style={{marginTop:8}}>
-          <button className="btn btn-outline" disabled={!inv.some(x=>x.id!=='new')} onClick={()=>{
-            const invoice=inv.find(x=>x.id!=='new');
-            if(!invoice) return;
-            setBoes([...boes,{id:'new',invoiceId:invoice.id,invNo:invoice.invNo,boeNo:'',boeDate:null,invQty:null,ratePerTon:invoice.ratePerTon,invValueUsd:null,advPaidUsd:null,assessableValue:null}]);
-          }}><Plus size={14}/> Add BOE</button>
-          <button className="btn btn-primary" disabled={busy || boes.some(x=>x.id==='new' && !x.invoiceId)} onClick={()=>save({boes:boes.map(x=>({...x}))},'BOE allocations saved.')} >Save BOE allocations</button>
-        </div>:null}
-      </section>
+    {canEdit ? (
+      <div
+        className="action-row"
+        style={{ marginLeft: 'auto', marginTop: 0 }}
+      >
+        <button
+          className="btn btn-outline"
+          disabled={!inv.some(x => x.id !== 'new')}
+          onClick={() => {
+            const invoice = inv.find(x => x.id !== 'new');
+            if (!invoice) return;
 
-      {/* =================================================
-          SETTLEMENT SHEET - BOX LAYOUT
-      ================================================= */}
+            setBoes([
+              ...boes,
+              {
+                id: 'new',
+                invoiceId: invoice.id,
+                invNo: invoice.invNo,
+                boeNo: '',
+                boeDate: null,
+                invQty: null,
+                ratePerTon: invoice.ratePerTon,
+                invValueUsd: null,
+                advPaidUsd: null,
+                assessableValue: null,
+              },
+            ]);
+          }}
+        >
+          <Plus size={14} /> Add BOE
+        </button>
 
-      <section className="card" style={{ marginTop: 14 }}>
-        <div className="section-title">BOE settlement sheets</div>
-        <p className="sub">
-          Select a BOE and open its independent 42-field settlement sheet.
-          Each BOE keeps its own calculations, allocations and manual values.
-        </p>
-        {!d.boes.length ? (
-          <div className="notice warn">
-            Add and save a BOE allocation to create its settlement sheet.
-          </div>
-        ) : (
-          <div className="action-row" style={{ marginTop: 10, alignItems: 'end' }}>
-            <div className="field" style={{ maxWidth: 420, flex: '1 1 280px' }}>
-              <label>Bill of Entry</label>
+        <button
+          className="btn btn-primary"
+          disabled={
+            busy ||
+            boes.some(x => x.id === 'new' && !x.invoiceId)
+          }
+          onClick={() =>
+            save(
+              { boes: boes.map(x => ({ ...x })) },
+              'BOE allocations saved.'
+            )
+          }
+        >
+          Save BOE allocations
+        </button>
+      </div>
+    ) : null}
+  </div>
+
+  <p className="sub">
+    Allocate only the quantity and invoice value belonging to each BOE.
+    These values are not copied in full from the invoice.
+  </p>
+
+  {!inv.some(x => x.id !== 'new') ? (
+    <div className="notice warn">
+      Save at least one invoice before adding BOEs.
+    </div>
+  ) : null}
+
+  <div
+    className="table-wrap"
+    style={{ border: 0, marginTop: 8 }}
+  >
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice</th>
+          <th>BOE no</th>
+          <th>BOE date</th>
+          <th>Allocated qty (MT)</th>
+          <th>Rate / MT</th>
+          <th>Allocated invoice value USD</th>
+          <th>Advance paid USD</th>
+          <th>Assessable value</th>
+          <th>Settlement sheet</th>
+          <th />
+        </tr>
+      </thead>
+
+      <tbody>
+        {boes.map((b, i) => (
+          <tr key={`${b.id}-${i}`}>
+            <td>
               <select
-                value={selectedBoeId}
-                onChange={e => setSelectedBoeId(e.target.value)}
+                disabled={!canEdit}
+                value={b.invoiceId}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            invoiceId: e.target.value,
+                            invNo:
+                              inv.find(
+                                v => v.id === e.target.value
+                              )?.invNo || '',
+                          }
+                        : x
+                    )
+                  )
+                }
               >
-                {d.boes.map(b => (
-                  <option key={b.id} value={b.id}>
-                    {b.boeNo || 'BOE without number'} · {b.invNo} · {b.invQty ?? '—'} MT
-                  </option>
-                ))}
+                {inv
+                  .filter(x => x.id !== 'new')
+                  .map(x => (
+                    <option key={x.id} value={x.id}>
+                      {x.invNo || 'Unnamed invoice'}
+                    </option>
+                  ))}
               </select>
-            </div>
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={!selectedBoeId}
-              onClick={() => setSettlementModalOpen(true)}
-            >
-              <FileSpreadsheet size={15} /> Open settlement sheet
-            </button>
-          </div>
-        )}
-      </section>
+            </td>
+
+            <td>
+              <input
+                value={b.boeNo || ''}
+                disabled={!canEdit}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? { ...x, boeNo: e.target.value }
+                        : x
+                    )
+                  )
+                }
+                style={{ width: 110 }}
+              />
+            </td>
+
+            <td>
+              <input
+                type="date"
+                value={b.boeDate || ''}
+                disabled={!canEdit}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? { ...x, boeDate: e.target.value }
+                        : x
+                    )
+                  )
+                }
+              />
+            </td>
+
+            <td>
+              <input
+                type="number"
+                step="any"
+                value={b.invQty ?? ''}
+                disabled={!canEdit}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            invQty:
+                              e.target.value === ''
+                                ? null
+                                : Number(e.target.value),
+                          }
+                        : x
+                    )
+                  )
+                }
+                style={{ width: 105 }}
+              />
+            </td>
+
+            <td>
+              <input
+                type="number"
+                step="any"
+                value={b.ratePerTon ?? ''}
+                disabled={!canEdit}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            ratePerTon:
+                              e.target.value === ''
+                                ? null
+                                : Number(e.target.value),
+                          }
+                        : x
+                    )
+                  )
+                }
+                style={{ width: 100 }}
+              />
+            </td>
+
+            <td>
+              <input
+                type="number"
+                step="any"
+                value={b.invValueUsd ?? ''}
+                disabled={!canEdit}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            invValueUsd:
+                              e.target.value === ''
+                                ? null
+                                : Number(e.target.value),
+                          }
+                        : x
+                    )
+                  )
+                }
+                style={{ width: 130 }}
+              />
+            </td>
+
+            <td>
+              <input
+                type="number"
+                step="any"
+                value={b.advPaidUsd ?? ''}
+                disabled={!canEdit}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            advPaidUsd:
+                              e.target.value === ''
+                                ? null
+                                : Number(e.target.value),
+                          }
+                        : x
+                    )
+                  )
+                }
+                style={{ width: 120 }}
+              />
+            </td>
+
+            <td>
+              <input
+                type="number"
+                step="any"
+                value={b.assessableValue ?? ''}
+                disabled={!canEdit}
+                onChange={e =>
+                  setBoes(
+                    boes.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            assessableValue:
+                              e.target.value === ''
+                                ? null
+                                : Number(e.target.value),
+                          }
+                        : x
+                    )
+                  )
+                }
+                style={{ width: 130 }}
+              />
+            </td>
+
+            {/* Independent settlement sheet button */}
+            <td>
+              
+<button
+  className="btn btn-primary boe-open-sheet-btn"
+  type="button"
+  disabled={
+    busy ||
+    b.id === 'new' ||
+    !d.boes.some(saved => saved.id === b.id)
+  }
+  title={
+    b.id === 'new'
+      ? 'Save BOE allocation first'
+      : 'Open this BOE settlement sheet'
+  }
+  onClick={() => {
+    setSelectedBoeId(b.id);
+    setSettlementModalOpen(true);
+  }}
+>
+  <FileSpreadsheet size={14} />
+  {b.id === 'new' ? 'Save first' : 'Open sheet'}
+</button>
+
+            </td>
+
+            <td>
+              {canEdit ? (
+                <button
+                  className="btn btn-outline"
+                  title="Remove BOE"
+                  onClick={() =>
+                    b.id === 'new'
+                      ? setBoes(
+                          boes.filter((_, j) => j !== i)
+                        )
+                      : void save(
+                          { boes: [{ id: b.id, delete: true }] },
+                          'BOE removed.'
+                        )
+                  }
+                >
+                  <Trash2 size={14} />
+                </button>
+              ) : null}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 
       {settlementModalOpen && selectedBoe ? (
         <div
@@ -1411,7 +1649,7 @@ export default function SettlementPage() {
                               <span className="action-row">
                                 {x.status !== 'excluded' ? (
                                   <button
-                                    className="btn btn-outline"
+                                    className="btn btn-primary"
                                     disabled={
   busy ||
   !(pick[x.key] ?? x.colKey) ||
@@ -1426,6 +1664,13 @@ export default function SettlementPage() {
                                         invoicePick[`tally:${x.key}`] ?? x.boeId
                                       )
                                     }
+                                    style={{
+  whiteSpace: 'nowrap',
+  fontSize: 12,
+  background: '#16a34a',
+  borderColor: '#16a34a',
+  color: '#ffffff',
+}}
                                   >
                                     Confirm
                                   </button>

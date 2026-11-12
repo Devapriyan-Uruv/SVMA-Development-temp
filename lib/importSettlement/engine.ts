@@ -226,12 +226,17 @@ const dayMs = 86400000;
 const t = (d: string | null | undefined) =>
   d ? Date.parse(d) : NaN;
 
+
 const textOf = (v: DayBookVoucher) =>
   [
+    v.contractNo,
+    v.boeNo,
+    v.invoiceNo,
     ...v.lines.map(l => l.name),
     ...v.lines.flatMap(l => l.refs.map(r => r.ref)),
     ...v.narration,
-  ].join(' | ');
+  ].filter(Boolean).join(' | ');
+
 
 export type EngineInput = {
   contract: ContractLite;

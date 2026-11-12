@@ -72,6 +72,215 @@ const nullableNumber = (value: unknown): number | null =>
     ? null
     : Number(value);
 
+const normalizeKey = (value: unknown) =>
+  String(value ?? '').trim().toUpperCase();
+
+/**
+ * Discover BOE and invoice combinations from Day Book metadata.
+ *
+ * Existing invoice and BOE records are never overwritten.
+ * Incomplete or ambiguous BOE/invoice combinations are skipped.
+ */
+async function syncDayBookBoes(
+  db: Db,
+  contract: ContractRow,
+): Promise<void> {
+  const contractNo = normalizeKey(contract.contract_number);
+
+  if (!contractNo) return;
+
+  const matchingRows = await fetchAllRows<{
+    vkey: string;
+    payload: DayBookVoucher;
+  }>((a, b) =>
+    db
+      .from('daybook_day_vouchers')
+      .select('vkey,payload')
+      .eq('payload->>contractNo', contractNo)
+      .range(a, b),
+  );
+
+  if (matchingRows.error) throw matchingRows.error;
+
+  const boeInvoices = new Map<
+    string,
+    { boeNo: string; invoiceNos: Set<string> }
+  >();
+
+  for (const row of matchingRows.data) {
+    const payload = row.payload || ({} as DayBookVoucher);
+
+    const boeNo = String(payload.boeNo ?? '').trim();
+    const invNo = String(payload.invoiceNo ?? '').trim();
+
+    if (!boeNo || !invNo) continue;
+
+    const boeKey = normalizeKey(boeNo);
+
+    const current = boeInvoices.get(boeKey) || {
+      boeNo,
+      invoiceNos: new Set<string>(),
+    };
+
+    current.invoiceNos.add(invNo);
+    boeInvoices.set(boeKey, current);
+  }
+
+  // Only accept BOEs associated with exactly one invoice number.
+  const validPairs = Array.from(boeInvoices.values())
+    .filter(item => item.invoiceNos.size === 1)
+    .map(item => ({
+      boeNo: item.boeNo,
+      boeKey: normalizeKey(item.boeNo),
+      invNo: Array.from(item.invoiceNos)[0],
+    }));
+
+  if (!validPairs.length) return;
+
+  // Load existing invoices.
+  const {
+    data: existingInvoices,
+    error: invoiceReadError,
+  } = await db
+    .from('import_contract_invoices')
+    .select('id,inv_no,sort_order')
+    .eq('contract_id', contract.id);
+
+  if (invoiceReadError) throw invoiceReadError;
+
+  const invoiceByKey = new Map<string, any>();
+
+  for (const row of existingInvoices || []) {
+    const key = normalizeKey(row.inv_no);
+
+    if (key && !invoiceByKey.has(key)) {
+      invoiceByKey.set(key, row);
+    }
+  }
+
+  let nextInvoiceOrder =
+    Math.max(
+      -1,
+      ...(existingInvoices || []).map(
+        (row: any) => Number(row.sort_order ?? -1),
+      ),
+    ) + 1;
+
+  // Create missing invoice headers only.
+  for (const pair of validPairs) {
+    const invoiceKey = normalizeKey(pair.invNo);
+
+    if (invoiceByKey.has(invoiceKey)) continue;
+
+    const {
+      data: created,
+      error,
+    } = await db
+      .from('import_contract_invoices')
+      .insert({
+        contract_id: contract.id,
+        inv_no: pair.invNo,
+        sort_order: nextInvoiceOrder++,
+      })
+      .select('id,inv_no,sort_order')
+      .single();
+
+    if (error) {
+      // Handle a possible concurrent insert.
+      const {
+        data: raced,
+        error: rereadError,
+      } = await db
+        .from('import_contract_invoices')
+        .select('id,inv_no,sort_order')
+        .eq('contract_id', contract.id)
+        .eq('inv_no', pair.invNo)
+        .maybeSingle();
+
+      if (rereadError) throw rereadError;
+      if (!raced) throw error;
+
+      invoiceByKey.set(invoiceKey, raced);
+    } else if (created) {
+      invoiceByKey.set(invoiceKey, created);
+    }
+  }
+
+  // Load existing BOEs.
+  const {
+    data: existingBoes,
+    error: boeReadError,
+  } = await db
+    .from('import_contract_boes')
+    .select('id,boe_no,invoice_id,sort_order')
+    .eq('contract_id', contract.id);
+
+  if (boeReadError) throw boeReadError;
+
+  const boeByKey = new Map<string, any>();
+
+  for (const row of existingBoes || []) {
+    const key = normalizeKey(row.boe_no);
+
+    if (key && !boeByKey.has(key)) {
+      boeByKey.set(key, row);
+    }
+  }
+
+  let nextBoeOrder =
+    Math.max(
+      -1,
+      ...(existingBoes || []).map(
+        (row: any) => Number(row.sort_order ?? -1),
+      ),
+    ) + 1;
+
+  // Create missing BOEs.
+  for (const pair of validPairs) {
+    const invoice = invoiceByKey.get(normalizeKey(pair.invNo));
+
+    if (!invoice) continue;
+
+    const existing = boeByKey.get(pair.boeKey);
+
+    // Never change an existing BOE's invoice association.
+    if (existing) continue;
+
+    const {
+      data: created,
+      error,
+    } = await db
+      .from('import_contract_boes')
+      .insert({
+        contract_id: contract.id,
+        invoice_id: invoice.id,
+        boe_no: pair.boeNo,
+        sort_order: nextBoeOrder++,
+      })
+      .select('id,boe_no,invoice_id,sort_order')
+      .single();
+
+    if (error) {
+      const {
+        data: raced,
+        error: rereadError,
+      } = await db
+        .from('import_contract_boes')
+        .select('id,boe_no,invoice_id,sort_order')
+        .eq('contract_id', contract.id)
+        .eq('boe_no', pair.boeNo)
+        .maybeSingle();
+
+      if (rereadError) throw rereadError;
+      if (!raced) throw error;
+
+      boeByKey.set(pair.boeKey, raced);
+    } else if (created) {
+      boeByKey.set(pair.boeKey, created);
+    }
+  }
+}
+
 export const toInvoice = (r: any): Invoice => ({
   id: r.id,
   invNo: r.inv_no || '',
@@ -80,8 +289,7 @@ export const toInvoice = (r: any): Invoice => ({
   invValueUsd: nullableNumber(r.inv_value_usd),
   advPaidUsd: nullableNumber(r.adv_paid_usd),
 
-  // Legacy fields retained for compatibility with existing invoice data.
-  // New BOE-specific calculations use import_contract_boes.
+  // Legacy fields retained for compatibility.
   boeNo: r.boe_no || null,
   boeDate: r.boe_date || null,
   assessableValue: nullableNumber(r.assessable_value),
@@ -100,8 +308,6 @@ const toBoe = (r: any, invoice?: Invoice): Boe => ({
   assessableValue: nullableNumber(r.assessable_value),
 });
 
-// Only purchase / payment / journal / contra vouchers can carry an
-// import's cost, so sales and receipts are not read.
 export async function loadSettlement(
   db: Db,
   contractId: string,
@@ -118,7 +324,10 @@ export async function loadSettlement(
   if (contractError) throw contractError;
   if (!contract) return null;
 
-  // Load the invoice, BOE, link and override records independently.
+  // Stage 2: discover and persist missing BOE/invoice headers.
+  await syncDayBookBoes(db, contract as ContractRow);
+
+  // Load invoice, BOE, link and override records.
   const [inv, boeResult, linkResult, cellResult] =
     await Promise.all([
       db
@@ -160,8 +369,7 @@ export async function loadSettlement(
 
   let invoices: Invoice[] = invoiceRows.map(toInvoice);
 
-  // Preserve the empty invoice editor state when a contract has
-  // no invoice records. This is not persisted as a database invoice.
+  // Preserve the empty invoice editor state.
   if (!invoices.length) {
     invoices = [
       {
@@ -178,7 +386,7 @@ export async function loadSettlement(
     ];
   }
 
-  // Read linked Import records to fill invoice metadata.
+  // Load linked Import records.
   const recordIds = Array.from(
     new Set(
       [
@@ -250,10 +458,7 @@ export async function loadSettlement(
     invoices.map(invoice => [invoice.id, invoice]),
   );
 
-  // BOE records are the sole source of BOE-specific values.
-  // Never copy BOE metadata or assessable value from an Import Entry
-  // into every BOE attached to an invoice: one invoice may have
-  // multiple BOEs, each with its own independently allocated values.
+  // BOE-specific values remain independent.
   const boes: Boe[] = boeRows.map((row: any) =>
     toBoe(row, invoiceMap.get(row.invoice_id)),
   );
@@ -268,7 +473,6 @@ export async function loadSettlement(
       }
     : null;
 
-  // Links and overrides are now scoped to a BOE.
   const links: Link[] = (linkResult.data || []).map(
     (row: any) => ({
       kind: row.kind,
@@ -287,7 +491,7 @@ export async function loadSettlement(
     value: nullableNumber(row.value),
   }));
 
-  // Day Book search window.
+  // Existing Day Book date window.
   const contractDate = Date.parse(
     String(contract.contract_date || ''),
   );
@@ -328,10 +532,46 @@ export async function loadSettlement(
 
   if (rows.error) throw rows.error;
 
-  const vouchers: VoucherRow[] = rows.data.map(row => ({
-    vkey: row.vkey,
-    voucher: row.payload,
-  }));
+  // Also load vouchers tagged with this exact Contract No,
+  // even if they fall outside the date window.
+  const contractVoucherRows = await fetchAllRows<{
+    vkey: string;
+    payload: DayBookVoucher;
+  }>((a, b) =>
+    db
+      .from('daybook_day_vouchers')
+      .select('vkey,payload')
+      .eq(
+        'payload->>contractNo',
+        normalizeKey(contract.contract_number),
+      )
+      .or(
+        'vch_type.ilike.%payment%,vch_type.ilike.%purchase%,vch_type.ilike.%journal%,vch_type.ilike.%contra%',
+      )
+      .order('vch_date')
+      .order('vkey')
+      .range(a, b),
+  );
+
+  if (contractVoucherRows.error) {
+    throw contractVoucherRows.error;
+  }
+
+  // Merge both result sets without duplicate voucher keys.
+  const voucherMap = new Map<string, VoucherRow>();
+
+  for (const row of [
+    ...rows.data,
+    ...contractVoucherRows.data,
+  ]) {
+    voucherMap.set(row.vkey, {
+      vkey: row.vkey,
+      voucher: row.payload,
+    });
+  }
+
+  const vouchers: VoucherRow[] =
+    Array.from(voucherMap.values());
 
   const [lowDate, highDate, count] = await Promise.all([
     db
