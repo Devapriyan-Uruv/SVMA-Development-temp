@@ -2,6 +2,7 @@
 import {useEffect,useState,type ReactNode} from 'react';
 import {PageHeader} from '@/components/PageHeader';
 import {Drawer} from '@/components/Drawer';
+import {DuoIcon} from '@/components/DuoIcons';
 import {EmptyState} from '@/components/EmptyState';
 import {Briefcase,CalendarClock,DollarSign,ShieldCheck,UserPlus,Users,User,Package,Target,Search,Upload,Trash2,Download,PlusCircle,FileText,Wallet,PartyPopper,LayoutGrid} from 'lucide-react';
 
@@ -24,6 +25,7 @@ const workletDefs:{key:string;label:string;icon:string;tone:string}[]=[
 ];
 const workletIcons:Record<string,any>={Users,Search,User,Briefcase,DollarSign,ShieldCheck,CalendarClock,Wallet,Package,Target,FileText,PartyPopper};
 
+const workletDuo:Record<string,string>={employees:'employees',directory:'directory',profile:'myhr',departments:'departments',compensation:'compensation',insurance:'insurance',roster:'roster',leave:'leave',assets:'assets',performance:'performance',company_docs:'companydocs',leave_balances:'balances',holidays:'holidays'};
 function Field({label,children}:{label:string;children:ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
 function money(n:number|null|undefined,currency='INR'){if(n==null)return '—';return `${currency==='INR'?'₹':currency+' '}${Number(n).toLocaleString('en-IN')}`}
 
@@ -85,9 +87,8 @@ export default function HrConsole(){
 
   <div className="worklet-grid">
    {workletDefs.map(w=>{
-    const Icon=workletIcons[w.icon]||Users;
     return <div key={w.key} className={`worklet worklet-${w.tone} ${tab===w.key?'active':''}`} onClick={()=>setTab(w.key as typeof tab)}>
-     <div className="worklet-icon"><Icon size={20}/></div><span>{w.label}</span>
+     <div className="worklet-icon"><DuoIcon name={workletDuo[w.key]||'employees'} size={21}/></div><span>{w.label}</span>
     </div>;
    })}
   </div>

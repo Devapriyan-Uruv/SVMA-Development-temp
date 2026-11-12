@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useState} from 'react';
 import {PageHeader} from '@/components/PageHeader';
+import {DuoIcon} from '@/components/DuoIcons';
 import {CalendarClock,DollarSign,PlusCircle,ShieldCheck,User,GraduationCap,FileText,Package,Target,Upload,Trash2,Download,Users,PartyPopper,Wallet,LayoutGrid,BookOpen} from 'lucide-react';
 
 function money(n:number|null|undefined,currency='INR'){if(n==null)return '—';return `${currency==='INR'?'₹':currency+' '}${Number(n).toLocaleString('en-IN')}`}
@@ -87,16 +88,16 @@ export default function MyHrPage(){
 
   <div className="worklet-grid">
    <div className={`worklet worklet-navy ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}>
-    <div className="worklet-icon"><LayoutGrid size={20}/></div><span>Overview</span>
+    <div className="worklet-icon"><DuoIcon name="overview" size={21}/></div><span>Overview</span>
     {pendingApprovals?<span className="worklet-badge">{pendingApprovals}</span>:null}
    </div>
-   <div className={`worklet worklet-blue ${tab==='personal'?'active':''}`} onClick={()=>setTab('personal')}><div className="worklet-icon"><User size={20}/></div><span>Personal Details</span></div>
-   <div className={`worklet worklet-purple ${tab==='education'?'active':''}`} onClick={()=>setTab('education')}><div className="worklet-icon"><GraduationCap size={20}/></div><span>Education</span></div>
-   <div className={`worklet worklet-teal ${tab==='documents'?'active':''}`} onClick={()=>setTab('documents')}><div className="worklet-icon"><FileText size={20}/></div><span>Documents</span></div>
-   <div className={`worklet worklet-amber ${tab==='assets'?'active':''}`} onClick={()=>setTab('assets')}><div className="worklet-icon"><Package size={20}/></div><span>My Assets</span></div>
-   <div className={`worklet worklet-rose ${tab==='performance'?'active':''}`} onClick={()=>setTab('performance')}><div className="worklet-icon"><Target size={20}/></div><span>Performance</span></div>
-   <div className={`worklet worklet-red ${tab==='company_docs'?'active':''}`} onClick={()=>setTab('company_docs')}><div className="worklet-icon"><BookOpen size={20}/></div><span>Company Docs</span></div>
-   {myReports.length?<div className={`worklet worklet-green ${tab==='team'?'active':''}`} onClick={()=>setTab('team')}><div className="worklet-icon"><Users size={20}/></div><span>My Team</span></div>:null}
+   <div className={`worklet worklet-blue ${tab==='personal'?'active':''}`} onClick={()=>setTab('personal')}><div className="worklet-icon"><DuoIcon name="myhr" size={21}/></div><span>Personal Details</span></div>
+   <div className={`worklet worklet-purple ${tab==='education'?'active':''}`} onClick={()=>setTab('education')}><div className="worklet-icon"><DuoIcon name="edu" size={21}/></div><span>Education</span></div>
+   <div className={`worklet worklet-teal ${tab==='documents'?'active':''}`} onClick={()=>setTab('documents')}><div className="worklet-icon"><DuoIcon name="docs" size={21}/></div><span>Documents</span></div>
+   <div className={`worklet worklet-amber ${tab==='assets'?'active':''}`} onClick={()=>setTab('assets')}><div className="worklet-icon"><DuoIcon name="assets" size={21}/></div><span>My Assets</span></div>
+   <div className={`worklet worklet-rose ${tab==='performance'?'active':''}`} onClick={()=>setTab('performance')}><div className="worklet-icon"><DuoIcon name="performance" size={21}/></div><span>Performance</span></div>
+   <div className={`worklet worklet-red ${tab==='company_docs'?'active':''}`} onClick={()=>setTab('company_docs')}><div className="worklet-icon"><DuoIcon name="companydocs" size={21}/></div><span>Company Docs</span></div>
+   {myReports.length?<div className={`worklet worklet-green ${tab==='team'?'active':''}`} onClick={()=>setTab('team')}><div className="worklet-icon"><DuoIcon name="employees" size={21}/></div><span>My Team</span></div>:null}
   </div>
 
   {tab==='overview'?<>

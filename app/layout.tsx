@@ -1,5 +1,6 @@
 import './globals.css';
 import './modern.css';
+import './design-v3.css';
 import localFont from 'next/font/local';
 import { AppShell } from '@/components/AppShell';
 import { PwaRegister } from '@/components/PwaRegister';

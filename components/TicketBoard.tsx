@@ -15,6 +15,7 @@ type Scope='solvent'|'quality';
 export function TicketBoard({scope,title,subtitle,backHref,backLabel}:{scope:Scope;title:string;subtitle:string;backHref:string;backLabel:string}){
  const [rows,setRows]=useState<any[]>([]),[loading,setLoading]=useState(true),[loadError,setLoadError]=useState('');
  const [filter,setFilter]=useState('open');
+ const [view,setView]=useState<'list'|'board'>(()=>typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('status')?'list':'board');
  const [openId,setOpenId]=useState<string|null>(null);
  const [downloading,setDownloading]=useState(false),[downloadError,setDownloadError]=useState('');
  const qs=scope==='quality'?'?scope=quality':'';
@@ -34,11 +35,11 @@ export function TicketBoard({scope,title,subtitle,backHref,backLabel}:{scope:Sco
   }catch(e){setDownloadError(e instanceof Error?e.message:'Unable to download.')}finally{setDownloading(false)}
  }
  return <>
-  <PageHeader title={title} subtitle={subtitle} backHref={backHref} backLabel={backLabel} action={<div style={{display:'flex',gap:8,alignItems:'center'}}><div className="field compact-field"><select value={filter} onChange={e=>setFilter(e.target.value)}><option value="open">Open actions</option><option value="closed">Resolved / closed</option><option value="all">All tickets</option></select></div><button type="button" className="btn btn-primary" disabled={downloading||!rows.length} onClick={download}><Download size={16}/>{downloading?'Downloading…':'Download Excel'}</button></div>}/>
+  <PageHeader eyebrow={scope==='quality'?'Quality tickets and deviations':'Tickets and deviations'} title={title} subtitle={subtitle} action={<div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><div className="segmented" role="group" aria-label="Ticket view"><button type="button" className={view==='board'?'active':''} onClick={()=>setView('board')}>Board</button><button type="button" className={view==='list'?'active':''} onClick={()=>setView('list')}>List</button></div>{view==='list'?<div className="field compact-field"><select value={filter} onChange={e=>setFilter(e.target.value)}><option value="open">Open actions</option><option value="closed">Resolved / closed</option><option value="all">All tickets</option></select></div>:null}<button type="button" className="btn btn-primary" disabled={downloading||!rows.length} onClick={download}><Download size={16}/>{downloading?'Downloading…':'Download Excel'}</button></div>}/>
   {downloadError?<div className="notice danger" style={{marginBottom:12}}>{downloadError}</div>:null}
   {loadError?<div className="notice danger" role="alert" style={{marginBottom:12}}>{loadError} <button type="button" className="btn btn-outline" style={{marginLeft:8}} onClick={()=>{setLoading(true);void load()}}>Retry</button></div>:null}
   <TicketSummary scope={scope}/><p className="sub">Latest 500 tickets shown below. Counts include all tickets.</p>
-  {filtered.length?<div className="row-list">{filtered.map(r=>{const tone=statusTone(r.status);return <button key={r.id} type="button" className="row-list-item" onClick={()=>setOpenId(r.id)}>
+  {view==='board'?<TicketColumns rows={rows} scope={scope} onOpen={setOpenId}/>:(filtered.length?<div className="row-list">{filtered.map(r=>{const tone=statusTone(r.status);return <button key={r.id} type="button" className="row-list-item" onClick={()=>setOpenId(r.id)}>
     <span className={`row-list-icon ${tone}`}><TicketIcon size={17}/></span>
     <span className="row-list-main">
      <span className="row-list-title">{r.ticket_no}</span>
@@ -52,11 +53,31 @@ export function TicketBoard({scope,title,subtitle,backHref,backLabel}:{scope:Sco
     <StatusBadge status={r.status}/>
     <ChevronRight size={16} className="row-list-chevron"/>
    </button>})}</div>
-   :loading?<div className="card"><div className="empty">Loading tickets…</div></div>:loadError?null:<div className="card"><EmptyState icon={<SearchCheck size={20}/>} title="No tickets in this view" description="Switch the filter above, or check back once a deviation raises a new ticket."/></div>}
+   :loading?<div className="card"><div className="empty">Loading tickets…</div></div>:loadError?null:<div className="card"><EmptyState icon={<SearchCheck size={20}/>} title="No tickets in this view" description="Switch the filter above, or check back once a deviation raises a new ticket."/></div>)}
   <Drawer open={!!active} onClose={()=>setOpenId(null)} title={active?.ticket_no||'Ticket'} subtitle={active?.deviations?.parameter_master?.name||'Deviation action'} wide>
    {active?<TicketDetail ticket={active} scope={scope} onDone={()=>{load()}}/>:null}
   </Drawer>
  </>;
+}
+
+// The board view: the same tickets as the list, laid out in columns by where they are in the workflow. Clicking a card opens the same detail drawer.
+const COLUMNS:{key:string;label:string;match:(st:string)=>boolean}[]=[
+ {key:'new',label:'New',match:st=>st==='open'||st==='raised'||st==='overdue'||st==='reopened'},
+ {key:'progress',label:'In progress',match:st=>!['open','raised','overdue','reopened','resolved','closed','ignored'].includes(st)},
+ {key:'resolved',label:'Resolved',match:st=>st==='resolved'},
+ {key:'closed',label:'Closed',match:st=>st==='closed'||st==='ignored'},
+];
+function TicketColumns({rows,scope,onOpen}:{rows:any[];scope:Scope;onOpen:(id:string)=>void}){
+ return <div className="ticket-columns">{COLUMNS.map(col=>{const list=rows.filter(r=>col.match(String(r.status||'')));return <div className="ticket-col" key={col.key}>
+  <div className="ticket-col-head"><b>{col.label}</b><span className="num">{list.length}</span></div>
+  {list.length?list.slice(0,50).map(r=>{const tone=statusTone(r.status);return <button type="button" key={r.id} className={`ticket-card-v3 tone-${tone}`} onClick={()=>onOpen(r.id)}>
+   <b>{r.deviations?.parameter_master?.name||'Deviation action'}</b>
+   <span className="sub">{r.ticket_no} · {r.deviations?.parameter_master?.parameter_sections?.name||(scope==='quality'?'Quality':'Solvent')}</span>
+   <span className="ticket-card-foot"><span className="ticket-card-tags"><StatusBadge status={r.status}/>{r.deviations?.severity?<span className={`pill ${r.deviations.severity==='critical'?'danger':'warn'}`}>{r.deviations.severity==='critical'?'Critical':'Watch'}</span>:null}</span><span className="num">{new Date(r.created_at).toLocaleDateString(undefined,{day:'2-digit',month:'short'})}</span></span>
+   {(r.deviations?.occurrence_count||1)>1?<span className="pill warn">Recurred {r.deviations.occurrence_count}x</span>:null}
+  </button>}):<div className="ticket-col-empty">Nothing here</div>}
+  {list.length>50?<div className="ticket-col-empty">+{list.length-50} more in the list view</div>:null}
+ </div>})}</div>;
 }
 
 function TicketDetail({ticket,scope,onDone}:{ticket:any;scope:Scope;onDone:()=>void}){

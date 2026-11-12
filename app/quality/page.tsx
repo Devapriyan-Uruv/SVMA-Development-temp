@@ -2,6 +2,9 @@
 import {TicketSummary} from '@/components/TicketSummary';
 import {useEffect,useState} from 'react';
 import {AlertTriangle,BrainCircuit,FileSpreadsheet,FlaskConical,LineChart,TicketCheck,TestTube2} from 'lucide-react';
+import {StageFlow} from '@/components/StageFlow';
+import {MetricCards} from '@/components/MetricCards';
+import {CriticalBanner} from '@/components/SolventInsights';
 import {PageHeader} from '@/components/PageHeader';import {Kpi} from '@/components/Kpi';import {StatusBars,TrendChart} from '@/components/IntelligenceCharts';import {SkeletonDashboard} from '@/components/Skeleton';import {targetBounds} from '@/lib/metrics';
 import {PeriodFilter, type Period} from '@/components/PeriodFilter';
 import {SubNav} from '@/components/SubNav';
@@ -21,12 +24,14 @@ export default function Quality(){
  const graphable=(d?.metrics||[]).filter((m:any)=>m.points?.filter((p:any)=>Number.isFinite(Number(p.value))).length>1);
  useEffect(()=>{if(graphable.length&&!graphable.some((m:any)=>m.key===metricKey))setMetricKey(graphable[0].key)},[graphable.map((m:any)=>m.key).join('|')]);
  const selected=graphable.find((m:any)=>m.key===metricKey)||null;
- if(!d)return <><PageHeader title="Quality Intelligence" subtitle="" backHref="/" backLabel="Home"/><SkeletonDashboard/></>;
- return <><PageHeader title="Quality Intelligence" subtitle="" backHref="/" backLabel="Home" action={d?.activeShift?<span className="pill ok">{d.activeShift.shift_master?.name||'SHIFT'} LIVE</span>:<span className="pill neutral">NO LIVE SHIFT</span>}/>
- <SubNav items={subNavItems}/>
+ if(!d)return <><PageHeader eyebrow="Quality" title="Lab analytics" subtitle=""/><SkeletonDashboard/></>;
+ const prod=[{code:'',name:'All'},{code:'RB',name:'Rice bran'},{code:'COPRA',name:'Copra'},{code:'PK',name:'Palm kernel'}];
+ return <><PageHeader eyebrow="Quality" title="Lab analytics" subtitle="" action={<><div className="segmented" role="group" aria-label="Product">{prod.map(x=><button type="button" key={x.code||'all'} className={period.product===x.code?'active':''} onClick={()=>setPeriod({...period,product:x.code})}>{x.name}</button>)}</div>{d?.activeShift?<span className="pill ok">{d.activeShift.shift_master?.name||'SHIFT'} LIVE</span>:<span className="pill neutral">NO LIVE SHIFT</span>}</>}/>
+ {error?<div className="session-error-banner" style={{marginBottom:14}}><b>Quality dashboard data could not be loaded.</b><span>{error}</span></div>:null}
+ {(d?.metrics||[]).length?<CriticalBanner metrics={d.metrics}/>:null}
+ {(d?.metrics||[]).length?<MetricCards metrics={d.metrics}/>:null}
  <TicketSummary scope="quality"/>
  <PeriodFilter period={period} onChange={setPeriod} liveSessions={(d?.liveShifts||[]).map((shift:any)=>({scope:'quality' as const,shift}))} onStopped={()=>setRefreshKey(x=>x+1)} products={[{code:'RB',name:'Rice Bran'},{code:'COPRA',name:'Copra'},{code:'PK',name:'Palm Kernel'}]}/>
- {error?<div className="session-error-banner" style={{marginBottom:14}}><b>Quality dashboard data could not be loaded.</b><span>{error}</span></div>:null}
  <div className="grid kpis modern-kpis" style={{marginTop:16}}><Kpi icon={FlaskConical} tone="green" label="Quality Health" value={s.health==null?'N/A':`${s.health}%`} foot={s.health==null?'Awaiting Quality Results':`${s.submitted||0} submitted results`}/><Kpi icon={TestTube2} tone="blue" label="Normal" value={s.normal??'—'} foot="Within configured target"/><Kpi icon={AlertTriangle} tone="amber" label="Warnings" value={s.warnings??'—'} foot={`${s.unconfigured||0} targets awaiting setup`}/><Kpi icon={TicketCheck} tone="rose" label="Open Actions" value={s.openTickets??'—'} foot={`${s.openDeviations??0} deviations`}/></div>
  <div className="grid kpis modern-kpis" style={{marginTop:12}}><Kpi icon={TestTube2} tone="cyan" label="Samples Received" value={s.samplesExpected?`${s.samplesReceived||0}/${s.samplesExpected}`:'—'} foot={`${s.sampleOverdue||0} sample overdue`}/><Kpi icon={TestTube2} tone="indigo" label="Results On Time" value={s.resultsExpected?`${s.resultsOnTime||0}/${s.resultsExpected}`:'—'} foot={`${s.resultOverdue||0} result overdue`}/></div>
  <div className="dashboard-canvas" style={{marginTop:16}}><section className="dashboard-panel span-5"><div className="panel-heading"><div><span>QUALITY STATUS</span><h3>Validated result mix</h3></div><FlaskConical size={20}/></div><StatusBars normal={s.normal||0} warning={s.warnings||0} critical={s.critical||0}/><div className="quality-product-list">{(d?.products||[]).map((p:any)=><div key={p.code}><span><i className={p.active?'live-dot':''}/>{p.name}</span><b>{p.submitted&&p.health!=null?`${p.health}%`:'N/A'}</b></div>)}</div></section><section className="dashboard-panel span-7"><div className="panel-heading"><div><span>ATTENTION TIMELINE</span><h3>Recent target deviations</h3></div></div><div className="event-timeline">{(d?.criticalTimeline||[]).slice(0,6).map((x:any,i:number)=><div key={i} className={`event-row ${x.status}`}><i/><div><b>{x.parameter}</b><span>{x.product} • {x.group}</span></div><div><strong>{x.actual??'—'}</strong><small>Target {x.target||'—'}</small></div><time>{new Date(x.time).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</time></div>)}{!d?.criticalTimeline?.length?<p className="panel-muted">No out-of-target Quality result is available yet.</p>:null}</div></section><section className="dashboard-panel span-12">

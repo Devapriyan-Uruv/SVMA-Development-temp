@@ -694,6 +694,13 @@ const totalDone = actualCompleted + notOperatingCompleted;
       <div className="source-shift-summary"><b>{active.shift_master?.name||'Shift'}</b><span>{active.operational_date} • Started {new Date(active.scheduled_start).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'})}</span><small>{totalDone}/{totalExpected||0} completed • {pct}%</small><div className="quality-summary-strip"><span><b>{exceptionCount}</b> exceptions</span><span><b>{naCount}</b> NA</span><span><b>{missingCount}</b> missing</span></div></div>
     </section>
 
+    <div className="entry-kpis" aria-label="Shift progress">
+      <div className="entry-kpi okc"><span>READINGS THIS SHIFT</span><b className="num">{totalDone}<small> / {totalExpected||0}</small></b><em>{pct}% complete</em></div>
+      <div className={`entry-kpi ${exceptionCount?'warnc':'okc'}`}><span>OUTSIDE TARGET</span><b className="num">{exceptionCount}</b><em>{exceptionCount?'Deviation raised on save':'All within target'}</em></div>
+      <div className={`entry-kpi ${missingCount?'infoc':'okc'}`}><span>STILL TO ENTER</span><b className="num">{missingCount}</b><em>{naCount} marked NA</em></div>
+      <div className="entry-kpi"><span>ENTERED BY</span><b className="entry-kpi-name">{active.entry_person_name||'—'}</b><em>{active.shift_master?.name||'Shift'} · {(active.active_products||[]).map(productName).join(', ')||'—'}</em></div>
+    </div>
+
     {!plantWide?<section className="source-control-row"><div><b>Running product</b><span>Select only the product currently running.</span></div><ProductTabs products={active.active_products||[]} value={product} onChange={setProduct}/></section>:null}
 
     {scope==='quality'&&dueTasks.length?<div className="sample-task-strip">{dueTasks.slice(0,8).map(t=>{const overdue=t.status==='sample_overdue';return <span key={t.id} className={`sample-task-chip ${overdue?'overdue':''}`}>{t.parameter_master?.name||'Sample'} • due {new Date(t.sample_due_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}<button type="button" disabled={!!viewAsUserId} onClick={()=>markSampleReceived(t.id)}>Mark received</button></span>})}</div>:null}

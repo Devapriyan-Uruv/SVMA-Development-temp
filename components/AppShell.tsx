@@ -2,7 +2,13 @@
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {useEffect,useMemo,useState,type ComponentType,type ReactNode} from 'react';
+<<<<<<< HEAD
 import {Activity,Boxes,Coins,ClipboardCheck,IdCard,LogOut,Megaphone,MessageCircle,Package,Ship,SendHorizontal,ShieldCheck,UserCog,ChevronDown,ChevronUp,User,ArrowUpRight} from 'lucide-react';
+=======
+import {TicketCheck,Activity,Boxes,Coins,ClipboardCheck,IdCard,LogOut,Megaphone,MessageCircle,Package,Ship,SendHorizontal,ShieldCheck,UserCog} from 'lucide-react';
+import {ModuleStrip,moduleFor} from '@/components/ModuleStrip';
+import {DuoIcon} from '@/components/DuoIcons';
+>>>>>>> 24770ea1 (Modern look for every module: top bar with module tab strip, duotone icons, Home launcher with Ask Uruvan and Needs you, Solvent / Quality / Management / Finance / Tickets / Boiler redesigned to the design canvas (AI reading and 3-day production and sales outlook on Management))
 import {NotificationBell} from '@/components/NotificationBell';
 import {ProfilePopover} from '@/components/ProfilePopover';
 import {AnnouncementPopup} from '@/components/AnnouncementPopup';
@@ -23,7 +29,10 @@ type NavItem={module:string;href:string;label:string;icon:Icon};
 // ("Good afternoon, X — Import") still resolves correctly while actually
 // on one of those pages — DOCK_HIDDEN_MODULES is what excludes them from
 // the dock specifically, without affecting that label lookup.
+<<<<<<< HEAD
 const DOCK_HIDDEN_MODULES=new Set(['ceo','solvent_management','quality_management','finance','import','export','input','quality_input','admin','operations_intelligence']);
+=======
+>>>>>>> 24770ea1 (Modern look for every module: top bar with module tab strip, duotone icons, Home launcher with Ask Uruvan and Needs you, Solvent / Quality / Management / Finance / Tickets / Boiler redesigned to the design canvas (AI reading and 3-day production and sales outlook on Management))
 const nav:NavItem[]=[
  {module:'home',href:'/',label:'Overview',icon:OverviewIcon},
  {module:'ceo',href:'/ceo',label:'Management',icon:CeoIcon},
@@ -83,6 +92,8 @@ const [profileOpen,setProfileOpen]=useState(false);
  // else — it's who's allowed to approve module-access changes at all, so
  // it's gated by role (ACCESS_APPROVAL_ROLES) exactly like the API route.
  const can=(m:string)=>{if(lockedToModule)return m===lockedToModule||m==='chat';if(m==='access_requests'||m==='ai_credits')return roles.includes('management')||roles.includes('super_admin');return m==='home'||m==='reports'||m==='approvals'||m==='chat'||m==='hr_self'||m==='announcements'||(m==='finance'?(modules.includes('finance_transaction')||modules.includes('finance_vendor_payment')):modules.includes(m))};
+ // The module tab strip uses the same access checks as everything else; Tally Connect is Super Admin only (as on the Home tile).
+ const canTab=(m:string)=>m==='tally_connect'?roles.includes('super_admin'):can(m);
  const visible=useMemo(()=>nav.filter(x=>can(x.module)),[modules.join('|'),lockedToModule]);
  // Section: /hr and /hr/my are nested (unlike e.g. /quality-input vs
  // /quality, which are boundary-distinct siblings), so both can legitimately
@@ -93,13 +104,12 @@ const [profileOpen,setProfileOpen]=useState(false);
  // long) — reached from the Home module-card grid instead (app/page.tsx).
  // They're kept in `visible`/`current` above so the top header's page
  // label still resolves correctly while actually on those pages.
- const dockVisible=useMemo(()=>visible.filter(n=>!DOCK_HIDDEN_MODULES.has(n.module)),[visible]);
  if(isLogin)return <main className="auth-shell">{children}</main>;
  const displayName=friendlyName(me?.profile?.full_name,me?.user?.email);
- const [dockCollapsed, setDockCollapsed] = useState(false);
  return <div className="saas-shell no-rail-shell">
   <section className="saas-stage premium-stage full-bleed-stage">
    <header className="saas-topbar premium-topbar">
+<<<<<<< HEAD
   <div className="topbar-left">
     <Link className="topbar-brand" href="/">
       <div className="topbar-brand-mark">
@@ -152,75 +162,20 @@ const [profileOpen,setProfileOpen]=useState(false);
   </div>
 </header>
    <main className="main-content premium-content dock-clearance">{sessionError?<div className="session-error-banner"><b>Access profile could not be loaded.</b><span>Please refresh or contact your administrator.</span><small>Check your account's module access with the SVMA Administrator, then refresh.</small></div>:null}{children}</main>
+=======
+    <div className="topbar-left">
+    <Link className="topbar-brand" href="/"><div className="topbar-brand-mark"><img src="/svma-logo2.png" alt="SVMA" /><span className="topbar-tagline">Operational Intelligence</span></div></Link>
+     {!lockedToModule?<Link className={`all-modules-btn${isHome?' on':''}`} href="/"><DuoIcon name="grid" size={18}/>All modules</Link>:null}
+    </div>
+    <div className="topbar-actions">{me?.activeShift?<span className="live-chip" title="This is your own active data-entry shift, not the plant's overall status"><Activity size={14}/><i/> Your {me.activeShift.scope==='quality'?'Quality':'Solvent'} shift is live</span>:null}<NotificationBell/>{can('chat')?<Link className="v3-icon-link v3-chat" href="/chat" title="Chat" aria-label={me?.unreadChatCount?`Chat, ${me.unreadChatCount} unread`:'Chat'}><DuoIcon name="chat" size={20}/>{me?.unreadChatCount?<span className="topbar-badge">{me.unreadChatCount>9?'9+':me.unreadChatCount}</span>:null}</Link>:null}<Link className="user-chip" href="/profile" title="My profile">{me?.profile?.avatar_url?<img src={me.profile.avatar_url} alt="" className="avatar-dot" style={{objectFit:'cover'}}/>:<span className="avatar-dot">{displayName.slice(0,1).toUpperCase()}</span>}<span><b>{me?.profile?.full_name||displayName}</b><small>{me?.roles?.[0]?.replaceAll('_',' ')||'User'}</small></span></Link><button type="button" className="v3-icon-link v3-signout" onClick={signOut} title="Sign out" aria-label="Sign out"><LogOut size={18}/></button></div>
+   </header>
+   <ModuleStrip pathname={pathname} can={canTab} me={me}/>
+   <main className="main-content premium-content" style={{['--c' as any]:moduleFor(pathname)?.color||'#1D5BFF'}}>{sessionError?<div className="session-error-banner"><b>Access profile could not be loaded.</b><span>Please refresh or contact your administrator.</span><small>Check your account's module access with the SVMA Administrator, then refresh.</small></div>:null}{children}</main>
+>>>>>>> 24770ea1 (Modern look for every module: top bar with module tab strip, duotone icons, Home launcher with Ask Uruvan and Needs you, Solvent / Quality / Management / Finance / Tickets / Boiler redesigned to the design canvas (AI reading and 3-day production and sales outlook on Management))
    <footer className="app-footer"><span>SVMA Intelligent Operations</span><span className="powered-by">Powered by<img src="/uruv_logo.png" alt="Uruv" className="aix3-mark"/></span></footer>
   </section>
 
-<nav
-  className={`bottom-dock ${dockCollapsed ? 'is-collapsed' : 'is-expanded'}`}
-  aria-label="Primary navigation"
->
-  {dockCollapsed ? (
-    <button
-      type="button"
-      className="dock-expand-button"
-      onClick={() => setDockCollapsed(false)}
-      aria-label="Expand navigation dock"
-      title="Expand navigation"
-    >
-      <ChevronUp size={23} strokeWidth={2.3} />
-    </button>
-  ) : (
-    <>
-      {dockVisible.map(n => {
-        const I = n.icon;
-        const active = current?.href === n.href;
-        const badge =
-          n.module === 'chat' ? me?.unreadChatCount :
-          n.module === 'approvals' ? me?.pendingApprovalsCount :
-          n.module === 'hr_self' ? me?.pendingLeaveApprovalsCount :
-          n.module === 'access_requests' ? me?.pendingAccessRequestsCount :
-          n.module === 'announcements' ? me?.unreadAnnouncementCount : 0;
 
-        return (
-          <Link
-            href={n.href}
-            key={n.href}
-            className={active ? 'active' : ''}
-          >
-            <span className="dock-icon-wrap">
-              <I size={19} />
-              {badge ? (
-                <span className="dock-badge">
-                  {badge > 9 ? '9+' : badge}
-                </span>
-              ) : null}
-            </span>
-            <span>{n.label}</span>
-          </Link>
-        );
-      })}
-
-      <button
-        type="button"
-        className="bottom-dock-signout"
-        onClick={signOut}
-      >
-        <LogOut size={19} />
-        <span>Sign out</span>
-      </button>
-
-      <button
-        type="button"
-        className="dock-collapse-button"
-        onClick={() => setDockCollapsed(true)}
-        aria-label="Collapse navigation dock"
-        title="Collapse navigation"
-      >
-        <ChevronDown size={20} strokeWidth={2.2} />
-      </button>
-    </>
-  )}
-</nav>
 
   <AssistantBubble/>
   <AnnouncementPopup/>

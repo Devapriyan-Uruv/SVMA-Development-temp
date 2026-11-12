@@ -8,6 +8,8 @@ import {StatusBars,Donut,TrendChart} from '@/components/IntelligenceCharts';
 import {SkeletonDashboard} from '@/components/Skeleton';
 import {PeriodFilter, type Period} from '@/components/PeriodFilter';
 import {ShiftControlList} from '@/components/ShiftControlList';
+import {CockpitGlance} from '@/components/CockpitGlance';
+import {HealthTrend,ResolutionRings,ConditionMix,ProductColumns} from '@/components/CockpitCharts';
 
 export default function CEO(){
  const [period,setPeriod]=useState<Period>({date:'',shiftId:'',product:''});
@@ -15,7 +17,7 @@ export default function CEO(){
  const [showShift,setShowShift]=useState(false);
  const [showAiInsights, setShowAiInsights] = useState(false);
  useEffect(()=>{const qs=new URLSearchParams();if(period.date)qs.set('date',period.date);if(period.shiftId)qs.set('shiftId',period.shiftId);fetch(`/api/ceo/dashboard?${qs.toString()}`,{cache:'no-store'}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`Dashboard failed (${r.status})`);return j}).then(setD).catch(e=>{setD({ss:{},qs:{},prod:{},safe:{},good:[],attention:[],better:[],trends:[],finance:{}});setError(e instanceof Error?e.message:'Dashboard failed')})},[period.date,period.shiftId,refreshKey]);
- if(!d)return <><PageHeader title="Management" subtitle="" backHref="/" backLabel="Home"/><SkeletonDashboard/></>;
+ if(!d)return <><PageHeader eyebrow="Management cockpit" title="Plant and business at a glance" subtitle=""/><SkeletonDashboard/></>;
  const {ss,qs,prod,safe,good,attention,better,trends,openDev,openTickets,devResolutionPct,ticketResolutionPct,products,trendDaily,finance,solvent,quality,liveSolventShifts,liveQualityShifts}=d;
  const trendPoints=(scope:'solventHealth'|'qualityHealth')=>(trendDaily||[]).filter((t:any)=>t[scope]!=null).map((t:any)=>({time:t.date,value:t[scope]}));
  // Section: the AI trend-signal text is often empty (it needs several
@@ -31,9 +33,11 @@ export default function CEO(){
  }
  const weeklySignals=[weekOverWeek('solventHealth','Solvent'),weekOverWeek('qualityHealth','Quality')].filter(Boolean) as string[];
 
- return <><PageHeader title="Management" subtitle="" backHref="/" backLabel="Home" action={<span className="pill info">EXECUTIVE VIEW</span>}/>
+ return <><PageHeader eyebrow="Management cockpit" title="Plant and business at a glance" subtitle="" action={<span className="pill info">EXECUTIVE VIEW</span>}/>
+ <CockpitGlance solventHealth={ss?.health} qualityHealth={qs?.health} openTickets={openTickets} openDev={openDev} solventNote={`${ss?.warning||0} warning • ${ss?.critical||0} critical`} qualityNote={`${qs?.warning||0} warning • ${qs?.critical||0} critical`} good={good||[]} attention={attention||[]} better={better||[]} trends={[...weeklySignals,...(trends||[])]}/>
  <PeriodFilter period={period} onChange={setPeriod} liveSessions={[...(liveSolventShifts||[]).map((shift:any)=>({scope:'solvent' as const,shift})),...(liveQualityShifts||[]).map((shift:any)=>({scope:'quality' as const,shift}))]} onStopped={()=>setRefreshKey(x=>x+1)}/>
  {error?<div className="session-error-banner" style={{marginBottom:14}}><b>Management dashboard data could not be loaded.</b><span>{error}</span></div>:null}
+<<<<<<< HEAD
 {/* LIVE SHIFT CONTROL - POPUP TRIGGER */}<section className="shift-control-compact"><button type="button" className="shift-control-toggle" onClick={() => setShowShift(true)}><span className="shift-control-icon"><Radio size={20} /></span><span className="shift-control-label"><strong>Live Shift Control</strong><small>Solvent & Quality monitoring</small></span><span className="shift-live-count">{(liveSolventShifts?.length || 0) + (liveQualityShifts?.length || 0)} Live</span><span className="shift-popup-view">View <ArrowRight size={16} /></span></button></section>{/* LIVE SHIFT CONTROL MODAL */}{showShift && (<div className="shift-popup-overlay" onClick={() => setShowShift(false)}><section className="shift-popup-modal" role="dialog" aria-modal="true" aria-labelledby="shift-popup-title" onClick={(e) => e.stopPropagation()}><header className="shift-popup-header"><div><span>LIVE MONITORING</span><h3 id="shift-popup-title">Active Shifts</h3><p>Solvent & Quality shift management</p></div><button type="button" className="shift-popup-close" onClick={() => setShowShift(false)} aria-label="Close popup">×</button></header><div className="shift-popup-body"><p className="panel-muted">Read-only monitoring. Shift stop and reassignment are restricted to Super Admin.</p><ShiftControlList canStop={true} canViewAs={false} canReassign={false} pollMs={30000} /></div></section></div>)}
  <div className="grid kpis modern-kpis" style={{marginTop:16}}><Kpi icon={Factory} tone="blue" label="Solvent Plant Health" value={ss?.health==null?'N/A':`${ss.health}%`} foot={`${ss?.warning||0} warning • ${ss?.critical||0} critical`}/><Kpi icon={TrendingUp} tone="green" label="Production Health" value={prod?.health==null?'N/A':`${prod.health}%`} foot={`${(prod?.normal||0)+(prod?.warning||0)+(prod?.critical||0)} process readings`}/><Kpi icon={ShieldAlert} tone="amber" label="Safety Health" value={safe?.health==null?'N/A':`${safe.health}%`} foot={`${(safe?.warning||0)+(safe?.critical||0)} attention readings`}/><Kpi icon={FlaskConical} tone="purple" label="Quality Health" value={qs?.health==null?'N/A':`${qs.health}%`} foot={`${qs?.warning||0} warning • ${qs?.critical||0} critical`}/></div>
   
@@ -45,6 +49,30 @@ export default function CEO(){
   <section className="dashboard-panel span-5"><div className="panel-heading"><div><span>ACTION CONTROL</span><h3>Resolution rate</h3></div><TicketCheck size={20}/></div><div className="ceo-donut-pair"><Donut value={devResolutionPct??0} label="Deviations resolved"/><Donut value={ticketResolutionPct??0} label="Tickets resolved"/></div><div className="action-big" style={{marginTop:12}}><div><ShieldAlert/><span>Open deviations</span><b>{openDev||0}</b></div><div><TicketCheck/><span>Open tickets</span><b>{openTickets||0}</b></div></div><div style={{display:'flex',gap:14,marginTop:13,flexWrap:'wrap'}}><Link className="text-link" href="/solvent/tickets">Solvent ticket centre <ArrowRight size={15}/></Link><Link className="text-link" href="/quality/tickets">Quality ticket centre <ArrowRight size={15}/></Link></div></section>
   <section className="dashboard-panel span-12"><div className="panel-heading"><div><span>PRODUCT COMPARISON</span><h3>Solvent vs Quality health, by product</h3></div><Factory size={20}/></div><div className="ceo-product-compare">{(products||[]).map((p:any)=><div className="ceo-product-row" key={p.code}><span>{p.name}</span><div className="ceo-product-bar"><label>Solvent</label><i><em style={{width:`${p.solventHealth??0}%`}}/></i><b>{p.solventHealth==null?'N/A':`${p.solventHealth}%`}</b></div><div className="ceo-product-bar"><label>Quality</label><i><em className="quality" style={{width:`${p.qualityHealth??0}%`}}/></i><b>{p.qualityHealth==null?'N/A':`${p.qualityHealth}%`}</b></div></div>)}</div></section>
  </div></>;
+=======
+ <section className="dashboard-panel span-12" style={{marginTop:16}}>
+  <button type="button" onClick={()=>setShowShift(x=>!x)} style={{all:'unset',cursor:'pointer',display:'flex',width:'100%',alignItems:'center',justifyContent:'space-between',gap:12}}>
+   <div className="panel-heading" style={{marginBottom:0,flex:1}}><div><span>SHIFT CONTROL</span><h3>What's being entered right now, Solvent and Quality</h3></div><Radio size={20}/></div>
+   <span className="pill info" style={{flexShrink:0}}>{(liveSolventShifts?.length||0)+(liveQualityShifts?.length||0)} live{showShift?<ChevronUp size={14} style={{marginLeft:6,verticalAlign:'-2px'}}/>:<ChevronDown size={14} style={{marginLeft:6,verticalAlign:'-2px'}}/>}</span>
+  </button>
+  {showShift?<>
+   <p className="panel-muted" style={{margin:'10px 0'}}>Read-only — Management can see every live shift here but cannot stop one; that stays a Super Admin action.</p>
+   <ShiftControlList canStop={false} canViewAs={false} canReassign={false} pollMs={30000}/>
+  </>:null}
+ </section>
+ <div className="ck-section-label">THE PLANT IN GRAPHS</div>
+ <div className="dashboard-canvas ck-graphs">
+  <section className="dashboard-panel span-6"><div className="panel-heading"><div><span>7-DAY TREND</span><h3>Plant health, day by day</h3></div><Link className="text-link" href="/solvent">Solvent <ArrowRight size={14}/></Link></div><HealthTrend days={trendDaily||[]}/></section>
+  <section className="dashboard-panel span-6"><div className="panel-heading"><div><span>CONDITION MIX</span><h3>Readings by state</h3></div></div><ConditionMix ss={ss} qs={qs} prod={prod} safe={safe} solvent={solvent} quality={quality}/></section>
+  <section className="dashboard-panel span-4"><div className="panel-heading"><div><span>ACTION CONTROL</span><h3>Resolution rate</h3></div></div><ResolutionRings devPct={devResolutionPct??null} ticketPct={ticketResolutionPct??null} openDev={openDev||0} openTickets={openTickets||0}/></section>
+  <section className="dashboard-panel span-4"><div className="panel-heading"><div><span>PRODUCT COMPARISON</span><h3>Health by product</h3></div></div><ProductColumns products={products||[]}/></section>
+  <section className="dashboard-panel span-4"><div className="panel-heading"><div><span>FINANCE CONTROL</span><h3>Reconciliation exceptions{finance?.latestTxnDate?` • as of ${finance.latestTxnDate}`:''}</h3></div><Link className="text-link" href="/finance">Finance <ArrowRight size={14}/></Link></div><div className="cc-fin"><div><span>Physical awaiting ERP/Tally</span><b className="num">{finance?.physicalReview||0}</b></div><div><span>Payments needing review</span><b className="num">{finance?.paymentsReview||0}</b></div><div><span>Net payment variance</span><b className="num">{typeof finance?.netVariance==='number'?`₹${Math.round(finance.netVariance).toLocaleString('en-IN')}`:'—'}</b></div></div></section>
+  <section className="dashboard-panel span-12"><div className="panel-heading"><div><span>TREND SIGNALS</span><h3>Evidence across recent inference</h3></div></div>{(weeklySignals.length||trends?.length)?<ul className="cc-signals">{[...weeklySignals,...(trends||[])].slice(0,6).map((x:string,i:number)=><li key={i}>{x}</li>)}</ul>:<p className="panel-muted">Trend signals appear after enough sequential readings are available.</p>}</section>
+ </div>
+ <div className="ck-section-label">OPERATIONS AND ERP</div>
+ <OpsControlTowerSection date={period.date}/>
+ </>;
+>>>>>>> 24770ea1 (Modern look for every module: top bar with module tab strip, duotone icons, Home launcher with Ask Uruvan and Needs you, Solvent / Quality / Management / Finance / Tickets / Boiler redesigned to the design canvas (AI reading and 3-day production and sales outlook on Management))
 }
 // Operations Daily Control Tower — management-focused presentation.
 // Existing endpoints, source fields and business calculations are preserved.
