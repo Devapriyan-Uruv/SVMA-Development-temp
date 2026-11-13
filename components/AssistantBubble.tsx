@@ -29,6 +29,9 @@ export function AssistantBubble(){
   }catch(e){setTurns(x=>[...x,{role:'assistant',text:e instanceof Error?e.message:'Unable to answer right now.'}])}
   finally{setBusy(false)}
  }
+ // The Home "Ask Uruvan" bar (and anything else) can open the assistant, optionally with a question, by dispatching: window.dispatchEvent(new CustomEvent('svma-assistant',{detail:{question}})).
+ const askRef=useRef(ask);askRef.current=ask;
+ useEffect(()=>{const h=(e:Event)=>{const q=String((e as CustomEvent).detail?.question||'').trim();setOpen(true);if(q)void askRef.current(q)};window.addEventListener('svma-assistant',h);return()=>window.removeEventListener('svma-assistant',h)},[]);
 
  return <div className="assistant-bubble-wrap">
   {open?<div className="assistant-panel">

@@ -4,7 +4,7 @@ import {useSearchParams} from 'next/navigation';
 import {SectionIcon} from '@/components/SectionIcon';
 import {unlockAlertSound,playAlertSound,vibrateAlert} from '@/lib/alerts';
 import {SaveNotice} from '@/components/SaveNotice';
-
+import { createPortal } from 'react-dom';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {CheckCircle2, Clock3, Eye, Lock, Sparkles} from 'lucide-react';
 import {ProductTabs} from '@/components/ProductPicker';
@@ -38,7 +38,7 @@ type Session={id:string;scheduled_start:string;scheduled_end:string;operational_
 type SampleTask={id:string;parameter_id:number;product_code:string;sample_due_at:string;sample_received_at:string|null;result_due_at:string|null;result_submitted_at:string|null;status:string;parameter_master?:{name:string}};
 type Props={kind:'hourly'|'inspection'|'boiler'|'quality'|'plant';mode?:'hourly'|'inspection';scope?:Scope;title:string;subtitle?:string};
 type HourSlot={start:string;end:string;label:string};
-
+type QualityGridTableProps = { rows: Param[]; session: Session; hourSlots: HourSlot[]; activeHour: number; sectionStatuses: SectionOperatingStatus[]; product: string; entries: Entry[]; saved: Map<string, Entry>; values: Record<string, string>; setValues: React.Dispatch<React.SetStateAction<Record<string, string>>>; comments: Record<string, string>; setComments: React.Dispatch<React.SetStateAction<Record<string, string>>>; naDrafts: Record<string, { reason: string; note: string }>; setNaDrafts: React.Dispatch<React.SetStateAction<Record<string, { reason: string; note: string }>>>; canAmend: boolean; onRequestAmend: (entry: Entry, param: Param) => void; onJumpHour: (i: number) => void; };
 const OFFLINE_QUEUE='svma-offline-entry-queue';
 const AMEND_ROLES_SOLVENT=['solvent_head','super_admin','admin'];
 const AMEND_ROLES_QUALITY=['quality_head','super_admin','admin'];
@@ -694,6 +694,13 @@ const totalDone = actualCompleted + notOperatingCompleted;
       <div className="source-shift-summary"><b>{active.shift_master?.name||'Shift'}</b><span>{active.operational_date} • Started {new Date(active.scheduled_start).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'})}</span><small>{totalDone}/{totalExpected||0} completed • {pct}%</small><div className="quality-summary-strip"><span><b>{exceptionCount}</b> exceptions</span><span><b>{naCount}</b> NA</span><span><b>{missingCount}</b> missing</span></div></div>
     </section>
 
+    <div className="entry-kpis" aria-label="Shift progress">
+      <div className="entry-kpi okc"><span>READINGS THIS SHIFT</span><b className="num">{totalDone}<small> / {totalExpected||0}</small></b><em>{pct}% complete</em></div>
+      <div className={`entry-kpi ${exceptionCount?'warnc':'okc'}`}><span>OUTSIDE TARGET</span><b className="num">{exceptionCount}</b><em>{exceptionCount?'Deviation raised on save':'All within target'}</em></div>
+      <div className={`entry-kpi ${missingCount?'infoc':'okc'}`}><span>STILL TO ENTER</span><b className="num">{missingCount}</b><em>{naCount} marked NA</em></div>
+      <div className="entry-kpi"><span>ENTERED BY</span><b className="entry-kpi-name">{active.entry_person_name||'—'}</b><em>{active.shift_master?.name||'Shift'} · {(active.active_products||[]).map(productName).join(', ')||'—'}</em></div>
+    </div>
+
     {!plantWide?<section className="source-control-row"><div><b>Running product</b><span>Select only the product currently running.</span></div><ProductTabs products={active.active_products||[]} value={product} onChange={setProduct}/></section>:null}
 
     {scope==='quality'&&dueTasks.length?<div className="sample-task-strip">{dueTasks.slice(0,8).map(t=>{const overdue=t.status==='sample_overdue';return <span key={t.id} className={`sample-task-chip ${overdue?'overdue':''}`}>{t.parameter_master?.name||'Sample'} • due {new Date(t.sample_due_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}<button type="button" disabled={!!viewAsUserId} onClick={()=>markSampleReceived(t.id)}>Mark received</button></span>})}</div>:null}
@@ -705,7 +712,16 @@ const totalDone = actualCompleted + notOperatingCompleted;
     {scope!=='quality'&&!plantGrid&&groups.length?<section className="source-group-wrap"><div className="source-control-label"><b>Test group</b></div><div className="source-category-tabs compact"><button className={!group?'active':''} onClick={()=>setGroup('')}>All parameters</button>{groups.map(g=><button key={g} className={group===g?'active':''} onClick={()=>setGroup(g)}>{g}</button>)}</div></section>:null}
 
     {!plantGrid?<section className="source-form-card">
-      <header className="source-form-title"><div><span>{qualityGrid?`Approved ${productName(activeProduct)} QC sheet — editing ${selected?.label||'selected hour'}`:actualMode==='hourly'?(selected?.label||'Selected hour'):'Once per shift'}</span><h2>{qualityGrid?'All product groups':(group||section)}</h2></div>{scope==='quality'&&(()=>{const sectionId=currentRows.length?sectionIdOf(currentRows[0]):null;const activeStatus=sectionId===null?undefined:sectionStatuses.find(status=>status.section_id===sectionId&&status.product_code===activeProduct&&status.status==='not_operating');if(activeStatus){return(<div className="section-status-actions"><span className="section-not-operating-badge">Not Operating</span>{roles.includes('super_admin')&&!viewAsUserId&&<button type="button" onClick={()=>{setUndoTarget(activeStatus);setSectionStatusError('');setSectionMarkReason('')}}>Undo</button>}</div>)}return(<button type="button" className="section-not-operating-button" disabled={!!viewAsUserId} onClick={()=>{if(sectionId!==null){setSectionMarkTarget({sectionId,sectionName:section});setSectionStatusError('')}}}>Not Operating</button>)})()}<div className="source-legend"><span><i className="dot normal"/>Normal</span><span><i className="dot warning"/>Warning</span><span><i className="dot critical"/>Critical</span></div></header>
+      <header className="source-form-title">
+        <div>
+          <span>{qualityGrid?`Approved ${productName(activeProduct)} QC sheet — editing ${selected?.label||'selected hour'}`:actualMode==='hourly'?(selected?.label||'Selected hour'):'Once per shift'}</span>
+          <h2>{qualityGrid?'All product groups':(group||section)}</h2>
+        </div>
+        <div className="quality-header-actions" style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:16,marginLeft:'auto',flexShrink:0}}>
+          {scope==='quality'&&(()=>{const sectionId=currentRows.length?sectionIdOf(currentRows[0]):null;const activeStatus=sectionId===null?undefined:sectionStatuses.find(status=>status.section_id===sectionId&&status.product_code===activeProduct&&status.status==='not_operating');if(activeStatus){return(<div className="section-status-actions"><span className="section-not-operating-badge">Not Operating</span>{roles.includes('super_admin')&&!viewAsUserId&&<button type="button" onClick={()=>{setUndoTarget(activeStatus);setSectionStatusError('');setSectionMarkReason('')}}>Undo</button>}</div>)}return(<button type="button" className="section-not-operating-button" disabled={!!viewAsUserId} onClick={()=>{if(sectionId!==null){setSectionMarkTarget({sectionId,sectionName:section});setSectionStatusError('')}}}>Not Operating</button>)})()}
+          <div className="source-legend"><span><i className="dot normal"/>Normal</span><span><i className="dot warning"/>Warning</span><span><i className="dot critical"/>Critical</span></div>
+        </div>
+      </header>
       {targetGapCount?<div className="notice danger target-gate-notice" style={{margin:'14px 16px 0'}}><b>Target configuration required.</b> {targetGapCount} parameter{targetGapCount===1?'':'s'} in this view {targetGapCount===1?'has':'have'} no approved target. {scope==='quality'?'Add the target before entering those results.':'You can record these readings. They will be marked Target missing, with no pass/fail judgement.'}</div>:null}
       {currentRows.length?(qualityGrid?<QualityGridTable rows={currentRows} session={active} hourSlots={hs} activeHour={hour} product={activeProduct} entries={entries} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} naDrafts={naDrafts} setNaDrafts={setNaDrafts} canAmend={canAmend} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})} onJumpHour={setHour} sectionStatuses={sectionStatuses}/>:<SourceTable rows={currentRows} session={active} selected={selected} product={activeProduct} mode={actualMode} saved={saved} values={values} setValues={setValues} comments={comments} setComments={setComments} canAmend={canAmend} onRequestAmend={(entry,param)=>setAmendEntry({entry,param})}/>):<div className="source-empty"><Clock3/><b>No entries due in this interval</b><span>Select another hour or category.</span></div>}
       {message?<div className={`notice ${/fail|error|missing/i.test(message)?'danger':''}`} style={{margin:'14px 16px 0'}}>{message}</div>:null}
@@ -850,69 +866,238 @@ function useActiveHourScroll(activeHour:number){
   },[activeHour]);
   return ref;
 }
-function QualityGridTable({rows,session,hourSlots,activeHour,product,sectionStatuses,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,canAmend,onRequestAmend,onJumpHour}:{rows:Param[];session:Session;hourSlots:HourSlot[];activeHour:number;sectionStatuses: SectionOperatingStatus[];product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void;onJumpHour:(i:number)=>void}){
-  const [naOpen,setNaOpen]=useState<string>('');
-  const scrollRef=useActiveHourScroll(activeHour);
-  function beginNA(k:string){setNaDrafts(x=>({...x,[k]:x[k]||{reason:'',note:''}}));setNaOpen(k)}
-  function clearNA(k:string){setNaDrafts(x=>{const n={...x};delete n[k];return n});setNaOpen('')}
-  return <div className="quality-grid-scroll" ref={scrollRef}><table className="quality-grid-table qg-has-group"><thead><tr>
-    <th className="source-col-no">S.NO</th><th className="qg-group-col">PRODUCT / TEST GROUP</th><th className="qg-param-col">PARAMETER / UNIT</th><th className="qg-target-col">TARGET</th><th className="qg-frequency-col">SOURCE FREQUENCY</th>
-    {hourSlots.map((s,i)=><th key={s.start} className={`qg-hour-col ${i===activeHour?'active':''}`}>{s.label}</th>)}
-    <th className="qg-stat-col">MIN</th><th className="qg-stat-col">MAX</th><th className="qg-stat-col">AVG</th><th className="qg-comments-col">COMMENTS</th>
-  </tr></thead><tbody>{rows.map(p=>{
-    const shiftEntries=entries.filter(e=>e.parameter_id===p.id&&(e.product_code||'PLANT')===product).sort((a,b)=>(a.slot_start||'').localeCompare(b.slot_start||''));
-    const numeric=p.input_type==='number'?shiftEntries.filter(e=>!(e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA')).map(e=>Number(e.amended_value_numeric??e.value_numeric)).filter(n=>Number.isFinite(n)):[];
-    const min=numeric.length?Math.min(...numeric):null,max=numeric.length?Math.max(...numeric):null,avg=numeric.length?numeric.reduce((a,b)=>a+b,0)/numeric.length:null;
-    const lastComment=[...shiftEntries].reverse().find(e=>e.comments&&e.comments.trim())?.comments||'';
-    const worstStatus=shiftEntries.reduce((w,e)=>{const order:Record<string,number>={critical:4,warning:3,target_missing:2,na:1,normal:0};return (order[e.validation_status||'']||0)>(order[w]||0)?(e.validation_status||''):w},'');
-    const sectionId = sectionIdOf(p);
+type NAPosition = {
+  top: number;
+  left: number;
+};
 
-const sectionNotOperating = sectionStatuses.some(
-  status =>
-    status.section_id === sectionId &&
-    status.product_code === product &&
-    status.status === 'not_operating'
-);
-    
-    return <tr key={`${p.id}-grid`} className={`source-row ${worstStatus}`}>
-      <td className="source-serial source-col-no">{p.source_serial||'—'}</td>
-      <td className="qg-group-col"><b>{p.source_group||'—'}</b></td>
-      <td className="qg-param-col"><div className="source-param-name">{p.name}</div>{p.unit?<div className="source-param-unit">Unit: {p.unit}</div>:null}</td>
-      <td className="qg-target-col"><span className={`source-target ${!String(p.target_text||'').trim()?'target-unconfigured':''}`}>{targetLabel(p)}</span></td>
-      <td className="qg-frequency-col"><span className="source-param-frequency">{p.sample_frequency||p.frequency.replaceAll('_',' ')}</span></td>
-      {hourSlots.map((s,i)=>{
-        const k=entryKey(p.id,s.start,product),e=saved.get(k),na=naDrafts[k];
+function NAReasonPopover({
+  draft,
+  title,
+  position,
+  onReasonChange,
+  onNoteChange,
+  onCancel,
+  onApply,
+}: {
+  draft: { reason: string; note: string };
+  title: string;
+  position: NAPosition;
+  onReasonChange: (reason: string) => void;
+  onNoteChange: (note: string) => void;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  return createPortal(
+    <div
+      className="qg-na-popover qg-na-popover-portal"
+      style={{
+        position: 'fixed',
+        top: position.top,
+        left: position.left,
+      }}
+      onClick={e => e.stopPropagation()}
+    >
+      <b>{title}</b>
 
-if(e){
-  const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';
-  const dv=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;
+      <select
+        value={draft.reason}
+        onChange={e => onReasonChange(e.target.value)}
+      >
+        <option value="">Select reason</option>
+        {NA_REASONS.map(reason => (
+          <option key={reason} value={reason}>
+            {reason}
+          </option>
+        ))}
+      </select>
 
-  return <td key={s.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}>
-    <Lock size={9}/>
-    {isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(dv)}
-  </td>;
-}
+      {draft.reason === 'Other' && (
+        <input
+          value={draft.note}
+          onChange={e => onNoteChange(e.target.value)}
+          placeholder="Required note"
+        />
+      )}
 
-// Section-level Not Operating overlay.
-// Saved entries above always take priority.
-if(sectionNotOperating){
-  return (
-    <td key={s.start} className="qg-cell qg-cell-locked">
-      <span className="qg-na-chip">N/A • Not Operating</span>
-    </td>
+      <div className="qg-na-buttons">
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          className="primary"
+          disabled={!draft.reason || (draft.reason === 'Other' && !draft.note.trim())}
+          onClick={onApply}
+        >
+          Apply
+        </button>
+      </div>
+    </div>,
+    document.body
   );
 }
+function QualityGridTable({rows,session,hourSlots,activeHour,product,sectionStatuses,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,canAmend,onRequestAmend,onJumpHour}:QualityGridTableProps){
+  const [naOpen,setNaOpen]=useState('');
+  const [naPosition,setNaPosition]=useState<NAPosition|null>(null);
+  const scrollRef=useActiveHourScroll(activeHour);
 
-if(i===activeHour){
-        const hasTarget=!!String(p.target_text||'').trim();return <td key={s.start} className={`qg-cell qg-cell-active ${hasTarget?'':'qg-target-required'}`}>{!hasTarget?<span className="target-entry-locked"><Lock size={11}/> Target required</span>:na?.reason?<span className="qg-na-chip">NA • {na.reason}</span>:<InputControl p={p} value={values[k]||''} onChange={v=>setValues(x=>({...x,[k]:v}))} compact/>}{hasTarget?<button type="button" className="qg-na-action" onClick={()=>beginNA(k)}>NA</button>:null}{hasTarget&&naOpen===k?<div className="qg-na-popover" onClick={z=>z.stopPropagation()}><b>Mark result as NA</b><select value={na?.reason||''} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:z.target.value,note:x[k]?.note||''}}))}><option value="">Select reason</option>{NA_REASONS.map(r=><option key={r} value={r}>{r}</option>)}</select>{na?.reason==='Other'?<input value={na.note} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:x[k]?.reason||'Other',note:z.target.value}}))} placeholder="Required note"/>:null}<div className="qg-na-buttons"><button type="button" onClick={()=>clearNA(k)}>Cancel</button><button type="button" className="primary" disabled={!na?.reason||(na.reason==='Other'&&!na.note.trim())} onClick={()=>setNaOpen('')}>Apply</button></div></div>:null}</td>;}
-        return <td key={s.start} className="qg-cell qg-cell-pending" onClick={()=>onJumpHour(i)} title="Click to edit this hour">—</td>;
-      })}
-      <td className="qg-stat-col">{min!=null?min.toFixed(2).replace(/\.00$/,''):'—'}</td>
-      <td className="qg-stat-col">{max!=null?max.toFixed(2).replace(/\.00$/,''):'—'}</td>
-      <td className="qg-stat-col">{avg!=null?avg.toFixed(2):'—'}</td>
-      <td className="qg-comments-col">{(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product);const activeLocked=saved.has(activeK);if(sectionNotOperating){return <span className="qg-comment-readout">Section not operating</span>}if(!activeLocked){return String(p.target_text||'').trim()?(<textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>):<span className="qg-comment-readout">Set target first</span>}return <span className="qg-comment-readout">{lastComment||'—'}</span>})()}</td>
-    </tr>;
-  })}</tbody></table></div>;
+  function beginNA(k:string,e:React.MouseEvent<HTMLButtonElement>){
+    const rect=e.currentTarget.getBoundingClientRect();
+    const popupWidth=220,popupHeight=190,gap=6;
+    const spaceBelow=window.innerHeight-rect.bottom;
+    const top=spaceBelow>=popupHeight+gap
+      ? rect.bottom+gap
+      : Math.max(8,rect.top-popupHeight-gap);
+    const left=Math.max(8,Math.min(rect.left,window.innerWidth-popupWidth-8));
+    setNaPosition({top,left});
+    setNaDrafts(x=>({...x,[k]:x[k]||{reason:'',note:''}}));
+    setNaOpen(k);
+  }
+
+  function clearNA(k:string){
+    setNaDrafts(x=>{const n={...x};delete n[k];return n});
+    setNaOpen('');
+    setNaPosition(null);
+  }
+
+  return (
+    <>
+      <div className="quality-grid-scroll" ref={scrollRef}>
+        <table className="quality-grid-table qg-has-group">
+          <thead>
+            <tr>
+              <th className="source-col-no">S.NO</th>
+              <th className="qg-group-col">PRODUCT / TEST GROUP</th>
+              <th className="qg-param-col">PARAMETER / UNIT</th>
+              <th className="qg-target-col">TARGET</th>
+              <th className="qg-frequency-col">SOURCE FREQUENCY</th>
+              {hourSlots.map((slot,i)=><th key={slot.start} className={`qg-hour-col ${i===activeHour?'active':''}`}>{slot.label}</th>)}
+              <th className="qg-stat-col">MIN</th>
+              <th className="qg-stat-col">MAX</th>
+              <th className="qg-stat-col">AVG</th>
+              <th className="qg-comments-col">COMMENTS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(p=>{
+              const shiftEntries=entries
+                .filter(e=>e.parameter_id===p.id&&(e.product_code||'PLANT')===product)
+                .sort((a,b)=>(a.slot_start||'').localeCompare(b.slot_start||''));
+              const numeric=p.input_type==='number'
+                ? shiftEntries
+                    .filter(e=>!(e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA'))
+                    .map(e=>Number(e.amended_value_numeric??e.value_numeric))
+                    .filter(n=>Number.isFinite(n))
+                : [];
+              const min=numeric.length?Math.min(...numeric):null;
+              const max=numeric.length?Math.max(...numeric):null;
+              const avg=numeric.length?numeric.reduce((a,b)=>a+b,0)/numeric.length:null;
+              const lastComment=[...shiftEntries].reverse().find(e=>e.comments&&e.comments.trim())?.comments||'';
+              const worstStatus=shiftEntries.reduce((w,e)=>{
+                const order:Record<string,number>={critical:4,warning:3,target_missing:2,na:1,normal:0};
+                return (order[e.validation_status||'']||0)>(order[w]||0)?(e.validation_status||''):w;
+              },'');
+              const naRowOpen=hourSlots.some(slot=>entryKey(p.id,slot.start,product)===naOpen);
+              const sectionId=sectionIdOf(p);
+              const sectionNotOperating=sectionStatuses.some(status=>
+                status.section_id===sectionId&&status.product_code===product&&status.status==='not_operating'
+              );
+
+              return (
+                <tr key={`${p.id}-grid`} className={`source-row ${worstStatus} ${naRowOpen ? 'na-popover-active-row' : ''}`}>
+                  <td className="source-serial source-col-no">{p.source_serial||'—'}</td>
+                  <td className="qg-group-col"><b>{p.source_group||'—'}</b></td>
+                  <td className="qg-param-col">
+                    <div className="source-param-name">{p.name}</div>
+                    {p.unit?<div className="source-param-unit">Unit: {p.unit}</div>:null}
+                  </td>
+                  <td className="qg-target-col">
+                    <span className={`source-target ${!String(p.target_text||'').trim()?'target-unconfigured':''}`}>{targetLabel(p)}</span>
+                  </td>
+                  <td className="qg-frequency-col">
+                    <span className="source-param-frequency">{p.sample_frequency||p.frequency.replaceAll('_',' ')}</span>
+                  </td>
+                  {hourSlots.map((slot,i)=>{
+                    const k=entryKey(p.id,slot.start,product);
+                    const e=saved.get(k);
+                    const na=naDrafts[k];
+
+                    if(e){
+                      const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';
+                      const displayValue=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;
+                      return (
+                        <td key={slot.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}>
+                          <Lock size={9}/>
+                          {isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(displayValue)}
+                        </td>
+                      );
+                    }
+
+                    if(sectionNotOperating){
+                      return <td key={slot.start} className="qg-cell qg-cell-locked"><span className="qg-na-chip">N/A • Not Operating</span></td>;
+                    }
+
+                    if(i===activeHour){
+                      const hasTarget=!!String(p.target_text||'').trim();
+                      return (
+                        <td key={slot.start} className={`qg-cell qg-cell-active ${hasTarget?'':'qg-target-required'}`}>
+                          {!hasTarget
+                            ? <span className="target-entry-locked"><Lock size={11}/> Target required</span>
+                            : na?.reason
+                              ? <span className="qg-na-chip">NA • {na.reason}</span>
+                              : <InputControl p={p} value={values[k]||''} onChange={v=>setValues(x=>({...x,[k]:v}))} compact/>
+                          }
+                          {hasTarget?<button type="button" className="qg-na-action" onClick={e=>beginNA(k,e)}>NA</button>:null}
+                        </td>
+                      );
+                    }
+
+                    return <td key={slot.start} className="qg-cell qg-cell-pending" onClick={()=>onJumpHour(i)} title="Click to edit this hour">—</td>;
+                  })}
+                  <td className="qg-stat-col">{min!=null?min.toFixed(2).replace(/\.00$/,''):'—'}</td>
+                  <td className="qg-stat-col">{max!=null?max.toFixed(2).replace(/\.00$/,''):'—'}</td>
+                  <td className="qg-stat-col">{avg!=null?avg.toFixed(2):'—'}</td>
+                  <td className="qg-comments-col">
+                    {(()=>{
+                      const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product);
+                      const activeLocked=saved.has(activeK);
+                      if(sectionNotOperating)return <span className="qg-comment-readout">Section not operating</span>;
+                      if(!activeLocked){
+                        return String(p.target_text||'').trim()
+                          ? <textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>
+                          : <span className="qg-comment-readout">Set target first</span>;
+                      }
+                      return <span className="qg-comment-readout">{lastComment||'—'}</span>;
+                    })()}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {naOpen&&naPosition&&(
+        <NAReasonPopover
+          draft={naDrafts[naOpen]||{reason:'',note:''}}
+          title={`Mark result as NA — S.No: ${
+  rows.find(row =>
+    hourSlots.some(
+      slot => entryKey(row.id, slot.start, product) === naOpen
+    )
+  )?.source_serial || '—'
+}`}
+          position={naPosition}
+          onReasonChange={reason=>setNaDrafts(x=>({...x,[naOpen]:{reason,note:x[naOpen]?.note||''}}))}
+          onNoteChange={note=>setNaDrafts(x=>({...x,[naOpen]:{reason:x[naOpen]?.reason||'Other',note}}))}
+          onCancel={()=>clearNA(naOpen)}
+          onApply={()=>{setNaOpen('');setNaPosition(null)}}
+        />
+      )}
+    </>
+  );
 }
 
 // Solvent + Boiler "plant" kind: a standalone grid, adapted from (but not
@@ -941,56 +1126,156 @@ if(i===activeHour){
 // real re-check is needed at a different hour.
 function isHourlyFrequency(f:string){return ['hourly','every_two_hours','every_4_hours'].includes(String(f))}
 function PlantGridTable({rows,hourSlots,activeHour,product,sectionNotOperating,entries,saved,values,setValues,comments,setComments,naDrafts,setNaDrafts,unlockedCells,setUnlockedCells,canAmend,onRequestAmend}:{rows:Param[];hourSlots:HourSlot[];activeHour:number;sectionNotOperating: boolean;product:string;entries:Entry[];saved:Map<string,Entry>;values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>;comments:Record<string,string>;setComments:React.Dispatch<React.SetStateAction<Record<string,string>>>;naDrafts:Record<string,{reason:string;note:string}>;setNaDrafts:React.Dispatch<React.SetStateAction<Record<string,{reason:string;note:string}>>>;unlockedCells:Set<string>;setUnlockedCells:React.Dispatch<React.SetStateAction<Set<string>>>;canAmend:boolean;onRequestAmend:(entry:Entry,param:Param)=>void}){
-  const [naOpen,setNaOpen]=useState<string>('');
+  const [naOpen,setNaOpen]=useState('');
+  const [naPosition,setNaPosition]=useState<NAPosition|null>(null);
   const scrollRef=useActiveHourScroll(activeHour);
-  function beginNA(k:string){setNaDrafts(x=>({...x,[k]:x[k]||{reason:'',note:''}}));setNaOpen(k)}
-  function clearNA(k:string){setNaDrafts(x=>{const n={...x};delete n[k];return n});setNaOpen('')}
+
+  function beginNA(k:string,e:React.MouseEvent<HTMLButtonElement>){
+    const rect=e.currentTarget.getBoundingClientRect();
+    const popupWidth=220,popupHeight=190,gap=6;
+    const spaceBelow=window.innerHeight-rect.bottom;
+    const top=spaceBelow>=popupHeight+gap
+      ? rect.bottom+gap
+      : Math.max(8,rect.top-popupHeight-gap);
+    const left=Math.max(8,Math.min(rect.left,window.innerWidth-popupWidth-8));
+    setNaPosition({top,left});
+    setNaDrafts(x=>({...x,[k]:x[k]||{reason:'',note:''}}));
+    setNaOpen(k);
+  }
+
+  function clearNA(k:string){
+    setNaDrafts(x=>{const n={...x};delete n[k];return n});
+    setNaOpen('');
+    setNaPosition(null);
+  }
+
   function unlock(k:string){setUnlockedCells(x=>new Set(x).add(k))}
-  return <div className="quality-grid-scroll" ref={scrollRef}><table className="quality-grid-table plant-grid-table"><thead><tr>
-    <th className="source-col-no">S.NO</th><th className="qg-param-col">PARAMETER / UNIT</th><th className="qg-target-col">TARGET</th><th className="qg-frequency-col">SOURCE FREQUENCY</th>
-    {hourSlots.map((s,i)=><th key={s.start} className={`qg-hour-col ${i===activeHour?'active':''}`}>{s.label}</th>)}
-    <th className="qg-stat-col">MIN</th><th className="qg-stat-col">MAX</th><th className="qg-stat-col">AVG</th><th className="qg-comments-col">COMMENTS</th>
-  </tr></thead><tbody>{rows.map(p=>{
-    const shiftEntries=entries.filter(e=>e.parameter_id===p.id&&(e.product_code||'PLANT')===product).sort((a,b)=>(a.slot_start||'').localeCompare(b.slot_start||''));
-    const numeric=p.input_type==='number'?shiftEntries.filter(e=>!(e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA')).map(e=>Number(e.amended_value_numeric??e.value_numeric)).filter(n=>Number.isFinite(n)):[];
-    const min=numeric.length?Math.min(...numeric):null,max=numeric.length?Math.max(...numeric):null,avg=numeric.length?numeric.reduce((a,b)=>a+b,0)/numeric.length:null;
-    const lastComment=[...shiftEntries].reverse().find(e=>e.comments&&e.comments.trim())?.comments||'';
-    const worstStatus=shiftEntries.reduce((w,e)=>{const order:Record<string,number>={critical:4,warning:3,target_missing:2,na:1,normal:0};return (order[e.validation_status||'']||0)>(order[w]||0)?(e.validation_status||''):w},'');
-    return <tr key={`${p.id}-grid`} className={`source-row ${worstStatus}`}>
-      <td className="source-serial source-col-no">{p.source_serial||'—'}</td>
-      <td className="qg-param-col"><div className="source-param-name">{p.name}</div>{p.unit?<div className="source-param-unit">Unit: {p.unit}</div>:null}{p.source_group?<div className="source-param-frequency">{p.source_group}</div>:null}</td>
-      <td className="qg-target-col"><span className={`source-target ${!String(p.target_text||'').trim()?'target-unconfigured':''}`}>{targetLabel(p)}</span></td>
-      <td className="qg-frequency-col"><span className="source-param-frequency">{p.sample_frequency||p.frequency.replaceAll('_',' ')}</span></td>
-      {hourSlots.map((s,i)=>{
-        const k=entryKey(p.id,s.start,product),e=saved.get(k),na=naDrafts[k];
 
-if(e){
-  const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';
-  const dv=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;
-  return <td key={s.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}>
-    <Lock size={9}/>
-    {isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(dv)}
-  </td>;
-}
+  const openParam=naOpen
+    ? rows.find(p=>hourSlots.some(slot=>entryKey(p.id,slot.start,product)===naOpen))
+    : undefined;
 
-const isDefaultHour=isHourlyFrequency(p.frequency)||i===0;
+  return (
+    <>
+      <div className="quality-grid-scroll" ref={scrollRef}>
+        <table className="quality-grid-table plant-grid-table">
+          <thead>
+            <tr>
+              <th className="source-col-no">S.NO</th>
+              <th className="qg-param-col">PARAMETER / UNIT</th>
+              <th className="qg-target-col">TARGET</th>
+              <th className="qg-frequency-col">SOURCE FREQUENCY</th>
+              {hourSlots.map((slot,i)=><th key={slot.start} className={`qg-hour-col ${i===activeHour?'active':''}`}>{slot.label}</th>)}
+              <th className="qg-stat-col">MIN</th>
+              <th className="qg-stat-col">MAX</th>
+              <th className="qg-stat-col">AVG</th>
+              <th className="qg-comments-col">COMMENTS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(p=>{
+              const shiftEntries=entries
+                .filter(e=>e.parameter_id===p.id&&(e.product_code||'PLANT')===product)
+                .sort((a,b)=>(a.slot_start||'').localeCompare(b.slot_start||''));
+              const numeric=p.input_type==='number'
+                ? shiftEntries
+                    .filter(e=>!(e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA'))
+                    .map(e=>Number(e.amended_value_numeric??e.value_numeric))
+                    .filter(n=>Number.isFinite(n))
+                : [];
+              const min=numeric.length?Math.min(...numeric):null;
+              const max=numeric.length?Math.max(...numeric):null;
+              const avg=numeric.length?numeric.reduce((a,b)=>a+b,0)/numeric.length:null;
+              const lastComment=[...shiftEntries].reverse().find(e=>e.comments&&e.comments.trim())?.comments||'';
+              const worstStatus=shiftEntries.reduce((w,e)=>{
+                const order:Record<string,number>={critical:4,warning:3,target_missing:2,na:1,normal:0};
+                return (order[e.validation_status||'']||0)>(order[w]||0)?(e.validation_status||''):w;
+              },'');
+              const naRowOpen=hourSlots.some(slot=>entryKey(p.id,slot.start,product)===naOpen);
 
-// Section-level Not Operating overlay.
-// Existing saved entries above always take priority.
-if(sectionNotOperating && (isDefaultHour || unlockedCells.has(k))){
-  return <td key={s.start} className="qg-cell qg-cell-locked">
-    <span className="qg-na-chip">N/A • Not Operating</span>
-  </td>;
-}        
-        if(!isDefaultHour&&!unlockedCells.has(k)){return(<td key={s.start} className="qg-cell qg-cell-noentry"><span>NO ENTRY</span>{!sectionNotOperating&&<button type="button" className="qg-noentry-unlock" onClick={()=>unlock(k)}>Enter anyway</button>}</td>);}
-        return <td key={s.start} className={`qg-cell qg-cell-active ${i===activeHour?'qg-cell-current':''}`}>{na?.reason?<span className="qg-na-chip">NA • {na.reason}</span>:<InputControl p={p} value={values[k]||''} onChange={v=>setValues(x=>({...x,[k]:v}))} compact/>}<button type="button" className="qg-na-action" onClick={()=>beginNA(k)}>NA</button>{naOpen===k?<div className="qg-na-popover" onClick={z=>z.stopPropagation()}><b>Mark as NA</b><select value={na?.reason||''} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:z.target.value,note:x[k]?.note||''}}))}><option value="">Select reason</option>{NA_REASONS.map(r=><option key={r} value={r}>{r}</option>)}</select>{na?.reason==='Other'?<input value={na.note} onChange={z=>setNaDrafts(x=>({...x,[k]:{reason:x[k]?.reason||'Other',note:z.target.value}}))} placeholder="Required note"/>:null}<div className="qg-na-buttons"><button type="button" onClick={()=>clearNA(k)}>Cancel</button><button type="button" className="primary" disabled={!na?.reason||(na.reason==='Other'&&!na.note.trim())} onClick={()=>setNaOpen('')}>Apply</button></div></div>:null}</td>;
-      })}
-      <td className="qg-stat-col">{min!=null?min.toFixed(2).replace(/\.00$/,''):'—'}</td>
-      <td className="qg-stat-col">{max!=null?max.toFixed(2).replace(/\.00$/,''):'—'}</td>
-      <td className="qg-stat-col">{avg!=null?avg.toFixed(2):'—'}</td>
-      <td className="qg-comments-col">{(()=>{const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product);const activeLocked=saved.has(activeK);if(sectionNotOperating){return <span className="qg-comment-readout">Section not operating</span>}if(!activeLocked){return <textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>}return <span className="qg-comment-readout">{lastComment||'—'}</span>})()}</td>
-    </tr>;
-  })}</tbody></table></div>;
+              return (
+                <tr key={`${p.id}-grid`} className={`source-row ${worstStatus} ${naRowOpen ? 'na-popover-active-row' : ''}`}>
+                  <td className="source-serial source-col-no">{p.source_serial||'—'}</td>
+                  <td className="qg-param-col">
+                    <div className="source-param-name">{p.name}</div>
+                    {p.unit?<div className="source-param-unit">Unit: {p.unit}</div>:null}
+                    {p.source_group?<div className="source-param-frequency">{p.source_group}</div>:null}
+                  </td>
+                  <td className="qg-target-col"><span className={`source-target ${!String(p.target_text||'').trim()?'target-unconfigured':''}`}>{targetLabel(p)}</span></td>
+                  <td className="qg-frequency-col"><span className="source-param-frequency">{p.sample_frequency||p.frequency.replaceAll('_',' ')}</span></td>
+                  {hourSlots.map((slot,i)=>{
+                    const k=entryKey(p.id,slot.start,product);
+                    const e=saved.get(k);
+                    const na=naDrafts[k];
+
+                    if(e){
+                      const isNA=e.result_state==='na'||e.validation_status==='na'||e.value_text==='NA';
+                      const displayValue=e.amended_value_numeric??e.amended_value_text??e.value_numeric??e.value_text;
+                      return (
+                        <td key={slot.start} className={`qg-cell qg-cell-locked ${statusClass(e.validation_status)}`} title={isNA?(e.na_reason||'NA'):e.validation_status||''}>
+                          <Lock size={9}/>
+                          {isNA?<span className="qg-na-chip">NA • {e.na_reason||'reason recorded'}</span>:String(displayValue)}
+                        </td>
+                      );
+                    }
+
+                    const isDefaultHour=isHourlyFrequency(p.frequency)||i===0;
+
+                    if(sectionNotOperating&&(isDefaultHour||unlockedCells.has(k))){
+                      return <td key={slot.start} className="qg-cell qg-cell-locked"><span className="qg-na-chip">N/A • Not Operating</span></td>;
+                    }
+
+                    if(!isDefaultHour&&!unlockedCells.has(k)){
+                      return (
+                        <td key={slot.start} className="qg-cell qg-cell-noentry">
+                          <span>NO ENTRY</span>
+                          {!sectionNotOperating&&<button type="button" className="qg-noentry-unlock" onClick={()=>unlock(k)}>Enter anyway</button>}
+                        </td>
+                      );
+                    }
+
+                    return (
+                      <td key={slot.start} className={`qg-cell qg-cell-active ${i===activeHour?'qg-cell-current':''}`}>
+                        {na?.reason
+                          ? <span className="qg-na-chip">NA • {na.reason}</span>
+                          : <InputControl p={p} value={values[k]||''} onChange={v=>setValues(x=>({...x,[k]:v}))} compact/>
+                        }
+                        <button type="button" className="qg-na-action" onClick={e=>beginNA(k,e)}>NA</button>
+                      </td>
+                    );
+                  })}
+                  <td className="qg-stat-col">{min!=null?min.toFixed(2).replace(/\.00$/,''):'—'}</td>
+                  <td className="qg-stat-col">{max!=null?max.toFixed(2).replace(/\.00$/,''):'—'}</td>
+                  <td className="qg-stat-col">{avg!=null?avg.toFixed(2):'—'}</td>
+                  <td className="qg-comments-col">
+                    {(()=>{
+                      const activeK=entryKey(p.id,hourSlots[activeHour]?.start||'',product);
+                      const activeLocked=saved.has(activeK);
+                      if(sectionNotOperating)return <span className="qg-comment-readout">Section not operating</span>;
+                      if(!activeLocked)return <textarea rows={1} value={comments[activeK]||''} onChange={z=>setComments(x=>({...x,[activeK]:z.target.value}))} placeholder="Remark"/>;
+                      return <span className="qg-comment-readout">{lastComment||'—'}</span>;
+                    })()}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {naOpen&&naPosition&&(
+        <NAReasonPopover
+          draft={naDrafts[naOpen]||{reason:'',note:''}}
+          title={`Mark as NA  — S.No: ${openParam?.source_serial||'—'}`}
+          position={naPosition}
+          onReasonChange={reason=>setNaDrafts(x=>({...x,[naOpen]:{reason,note:x[naOpen]?.note||''}}))}
+          onNoteChange={note=>setNaDrafts(x=>({...x,[naOpen]:{reason:x[naOpen]?.reason||'Other',note}}))}
+          onCancel={()=>clearNA(naOpen)}
+          onApply={()=>{setNaOpen('');setNaPosition(null)}}
+        />
+      )}
+    </>
+  );
 }
 
 // Category "blocks", not tabs: every section renders as its own headed
