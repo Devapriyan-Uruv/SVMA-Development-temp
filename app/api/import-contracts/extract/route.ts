@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAI, OPENAI_MODEL } from '@/lib/openai';
+import { aiConfigured, URUV_MODEL_EXTRACT } from '@/lib/openai';
 import {
   ALLOWED_TYPES,
   EXTRACTION_PROMPT,
@@ -50,12 +51,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: 'OpenAI is not configured on the server.' },
-        { status: 500 },
-      );
-    }
+    if (!aiConfigured()) {
+  return NextResponse.json(
+    { error: 'URUV Inai is not configured on the server.' },
+    { status: 503 }
+  );
+}
 
     const form = await req.formData();
     const submitted = form.getAll('files');
@@ -187,7 +188,7 @@ for (const row of existingContracts ?? []) {
             ];
 
       const response = await openai.responses.create({
-        model: OPENAI_MODEL,
+        model: URUV_MODEL_EXTRACT,
         input: [
           {
             role: 'user',

@@ -95,7 +95,7 @@ export const EXPENSE_COLS: {
   label: string;
   re: RegExp;
 }[] = [
-  { key: 'insurance', no: 9, label: 'Insurance', re: /insurance/i },
+  { key: 'insurance', no: 9, label: 'Insurance', re: /^\s*insurance(?:\s+charges)?\s*$/i },
   {
     key: 'bankChgs',
     no: 11,
@@ -382,6 +382,7 @@ export function buildSettlement(inp: EngineInput): Settlement {
         invoiceId: null,
         evidence: [`contract ${contract.contractNumber}`],
         strong: false,
+        contractMatched: true,
       };
     }
 
@@ -487,6 +488,39 @@ export function buildSettlement(inp: EngineInput): Settlement {
         return;
       }
 
+      // Contract-level Advance in Journal vouchers. In the imported Day Book
+      // payload, the line name is often the supplier, while the accounting
+      // classification is stored in refs[].kind (for example "Advance").
+      // Match only by the exact contract number found in the complete voucher;
+      // supplier name alone is never sufficient because suppliers can have
+      // multiple independent contracts.
+      if (
+        /journal/i.test(type) &&
+        match.evidence.some(e => e.startsWith('contract '))
+      ) {
+        const advanceRefs = l.refs.filter(
+          ref => /^\s*advance\s*$/i.test(String(ref.kind || '')) &&
+            String(ref.drcr || '').toLowerCase() === 'dr' &&
+            Number(ref.amount) > 0,
+        );
+        const advanceRefAmount = advanceRefs.reduce(
+          (total, ref) => total + Number(ref.amount || 0),
+          0,
+        );
+        const advanceAmount = advanceRefAmount || amountOf(l.dr);
+
+        if (advanceAmount > 0 && (advanceRefs.length > 0 || amountOf(l.dr) > 0)) {
+          push(
+            'payment',
+            'advPaidInr',
+            advanceAmount,
+            [...match.evidence, 'Advance debit reference in Journal voucher'],
+            'auto',
+          );
+          return;
+        }
+      }
+
       // Payment voucher
       if (
         /payment/i.test(type) &&
@@ -540,7 +574,7 @@ export function buildSettlement(inp: EngineInput): Settlement {
                 : ['within shipment window — no BOE / invoice reference']),
               sideEvidence,
             ],
-            match.strong ? 'auto' : 'candidate',
+            (match.strong || match.evidence.some(e => e.startsWith('contract '))) ? 'auto' : 'candidate',
           );
         } else if (
           !col &&

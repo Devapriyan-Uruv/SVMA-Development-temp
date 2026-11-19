@@ -28,7 +28,18 @@ type Payload = {
     searched: { from: string; to: string };
   };
   keyDates: Record<string, string | null>;
+
   canEdit: boolean;
+};
+
+type AdvanceSummary = {
+  advanceInr: number | null;
+  advanceUsd: number | null;
+  insuranceInr: number | null;
+  advancePercentage: number | null;
+  paymentCount: number;
+  fxStatus: 'complete' | 'pending' | 'partial' | string;
+  lastUpdated: string | null;
 };
 
 const BLOCKS: {
@@ -116,6 +127,8 @@ export default function SettlementPage() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [advanceSummary, setAdvanceSummary] = useState<AdvanceSummary | null>(null);
+  const [advanceSummaryError, setAdvanceSummaryError] = useState('');
 
   const [inv, setInv] = useState<Invoice[]>([]);
   const [boes, setBoes] = useState<Boe[]>([]);
@@ -147,6 +160,28 @@ export default function SettlementPage() {
       if (!r.ok) throw new Error(j.error);
 
       setD(j);
+
+      // Contract-level advance summary is independent of BOE allocation.
+      // It is supplied by the backend API using matched Day Book vouchers and historical FX.
+      try {
+        const summaryResponse = await fetch(
+          `/api/import-contracts/${id}/advance`,
+          { cache: 'no-store' }
+        );
+        const summaryJson = await summaryResponse.json();
+        if (!summaryResponse.ok) {
+          throw new Error(summaryJson.error || 'Unable to load advance summary.');
+        }
+        setAdvanceSummary(summaryJson.summary ?? summaryJson);
+        setAdvanceSummaryError('');
+      } catch (summaryError) {
+        setAdvanceSummary(null);
+        setAdvanceSummaryError(
+          summaryError instanceof Error
+            ? summaryError.message
+            : 'Advance summary is not available.'
+        );
+      }
 
       setInv(
         j.invoices.map((x: Invoice) => ({ ...x }))
@@ -661,7 +696,60 @@ export default function SettlementPage() {
         ) : null}
       </section>
 
-      {/* Invoice master and independent BOE allocations */}
+      {/* Contract-level advance and insurance summary — shown before BOE allocation */}
+      <section className="card" style={{ marginTop: 14 }}>
+        <div className="section-title">Advance &amp; Insurance Summary</div>
+        <p className="sub" style={{ margin: '4px 0 12px' }}>
+          Contract-level totals from matched Day Book vouchers. Advance percentage
+          uses the historical USD/INR rate applicable to each payment date.
+        </p>
+
+        {advanceSummaryError ? (
+          <div className="notice warn">{advanceSummaryError}</div>
+        ) : (
+          <>
+            <div className="grid two" style={{ marginTop: 8 }}>
+              <div className="field">
+                <label>Total advance paid (INR)</label>
+                <strong>
+                  {advanceSummary?.advanceInr == null
+                    ? '—'
+                    : `₹ ${inr(advanceSummary.advanceInr)}`}
+                </strong>
+              </div>
+              <div className="field">
+                <label>Insurance (INR)</label>
+                <strong>
+                  {advanceSummary?.insuranceInr == null
+                    ? 'Not Found'
+                    : `₹ ${inr(advanceSummary.insuranceInr)}`}
+                </strong>
+              </div>
+              
+              <div className="field">
+                <label>Actual advance percentage</label>
+                <strong>
+                  {advanceSummary?.advancePercentage == null
+                    ? 'Exchange Rate Pending'
+                    : `${Number(advanceSummary.advancePercentage).toFixed(2)}%`}
+                </strong>
+              </div>
+            </div>
+
+            <p className="sub" style={{ margin: '10px 0 0' }}>
+              Payments: {advanceSummary?.paymentCount ?? 0}
+              {' · '}
+              FX status: {advanceSummary?.fxStatus ?? 'pending'}
+              {' · '}
+              Last updated: {advanceSummary?.lastUpdated
+                ? new Date(advanceSummary.lastUpdated).toLocaleString('en-IN')
+                : '—'}
+            </p>
+          </>
+        )}
+      </section>
+
+            {/* Invoice master and independent BOE allocations */}
       
 <section className="card" style={{ marginTop: 14 }}>
   {/* Section heading and top-right actions */}
@@ -1721,400 +1809,6 @@ export default function SettlementPage() {
         ))}
       </section>
 
-      {/* =================================================
-          SETTLEMENT SHEET STYLES
-      ================================================= */}
-
-      <style jsx global>{`
-        .svma-modal-backdrop {
-          position: fixed;
-          inset: 0;
-          z-index: 1000;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 20px;
-          background: rgba(15, 23, 42, 0.68);
-          backdrop-filter: blur(3px);
-        }
-
-        .svma-modal-dialog {
-          display: flex;
-          flex-direction: column;
-          width: min(1500px, 100%);
-          max-height: calc(100vh - 40px);
-          overflow: hidden;
-          border-radius: 14px;
-          background: #f8fafc;
-          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
-        }
-
-        .svma-modal-toolbar {
-          position: sticky;
-          top: 0;
-          z-index: 2;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 14px;
-          padding: 14px 18px;
-          border-bottom: 1px solid #dbe2ea;
-          background: #fff;
-        }
-
-        .svma-modal-toolbar h2 {
-          margin: 0;
-          color: #172033;
-          font-size: 17px;
-          font-weight: 750;
-        }
-
-        .svma-modal-toolbar p {
-          margin: 4px 0 0;
-          color: #64748b;
-          font-size: 12px;
-        }
-
-        .svma-modal-close {
-          min-width: 38px;
-          padding: 8px !important;
-        }
-
-        .svma-modal-dialog > .svma-sheet-card {
-          overflow-y: auto;
-          min-height: 0;
-          border: 0;
-          border-radius: 0;
-        }
-
-        .svma-sheet-card {
-          padding: 0 !important;
-          overflow: hidden;
-          border: 1px solid #dbe2ea;
-          border-radius: 12px;
-          background: #fff;
-          color: #172033;
-        }
-
-        .svma-sheet-title {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 16px;
-          padding: 20px 22px;
-          background: #172b4d;
-          color: #fff;
-        }
-
-        .svma-sheet-title h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 750;
-          letter-spacing: 0.7px;
-        }
-
-        .svma-sheet-title p {
-          margin: 5px 0 0;
-          color: #cbd5e1;
-          font-size: 12px;
-        }
-
-        .svma-sheet-contract {
-          padding: 7px 11px;
-          border: 1px solid #64748b;
-          border-radius: 6px;
-          font-size: 12px;
-          font-weight: 650;
-          white-space: nowrap;
-        }
-
-        .svma-sheet-section {
-          margin: 14px;
-          border: 1px solid #cbd5e1;
-          border-radius: 7px;
-          overflow: hidden;
-          background: #fff;
-        }
-
-        .svma-section-heading {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          padding: 11px 14px;
-          background: #eaf0f8;
-          border-bottom: 1px solid #cbd5e1;
-          color: #172b4d;
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.5px;
-        }
-
-        .svma-section-heading span {
-          color: #64748b;
-          font-size: 10px;
-          white-space: nowrap;
-        }
-
-        .svma-contract-grid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-
-        .svma-info-box {
-          min-height: 72px;
-          padding: 13px 15px;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          gap: 8px;
-          border-right: 1px solid #e2e8f0;
-          border-bottom: 1px solid #e2e8f0;
-        }
-
-        .svma-info-box:nth-child(3n) {
-          border-right: 0;
-        }
-
-        .svma-info-box span {
-          font-size: 10px;
-          color: #64748b;
-          font-weight: 750;
-          letter-spacing: 0.35px;
-        }
-
-        .svma-info-box strong {
-          font-size: 13px;
-          color: #172033;
-          overflow-wrap: anywhere;
-        }
-
-        .svma-table-scroll {
-          width: 100%;
-          overflow-x: auto;
-          scrollbar-width: thin;
-          scrollbar-color: #aab6c5 #f1f5f9;
-        }
-
-        .svma-table-scroll::-webkit-scrollbar {
-          height: 8px;
-        }
-
-        .svma-table-scroll::-webkit-scrollbar-track {
-          background: #f1f5f9;
-        }
-
-        .svma-table-scroll::-webkit-scrollbar-thumb {
-          background: #aab6c5;
-          border-radius: 8px;
-        }
-
-        .svma-grid-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 11px;
-          table-layout: auto;
-        }
-
-        .svma-grid-table th,
-        .svma-grid-table td {
-          border: 1px solid #d6dde7;
-          padding: 9px 8px;
-          vertical-align: middle;
-        }
-
-        .svma-grid-table th {
-          text-align: center;
-          font-weight: 750;
-        }
-
-        .svma-number-row th {
-          background: #e2e8f0;
-          color: #334155;
-          font-size: 10px;
-          padding: 7px 6px;
-        }
-
-        .svma-label-row th {
-          background: #f1f5f9;
-          color: #172b4d;
-          font-size: 10px;
-          line-height: 1.35;
-          min-width: 88px;
-          white-space: normal;
-          overflow-wrap: anywhere;
-        }
-
-        .svma-expense-table {
-          min-width: 1850px;
-        }
-
-        .svma-expense-table th,
-        .svma-expense-table td {
-          min-width: 88px;
-        }
-
-        .svma-settlement-table {
-          min-width: 1250px;
-        }
-
-        .svma-settlement-table th,
-        .svma-settlement-table td {
-          min-width: 96px;
-        }
-
-        .svma-per-ton-table {
-          min-width: 640px;
-        }
-
-        .svma-per-ton-table th {
-          min-width: 145px;
-        }
-
-        .svma-load-table {
-          min-width: 760px;
-        }
-
-        .svma-load-table th {
-          background: #f1f5f9;
-          color: #172b4d;
-          font-size: 10px;
-          white-space: nowrap;
-        }
-
-        .svma-grid-table td {
-          background: #fff;
-        }
-
-        .svma-text-cell {
-          text-align: left;
-          white-space: nowrap;
-        }
-
-        .svma-number-cell {
-          text-align: right;
-          font-variant-numeric: tabular-nums;
-          white-space: nowrap;
-        }
-
-        .svma-grid-table tbody tr:hover td {
-          background: #f8fafc;
-        }
-
-        .svma-grid-table tbody tr.svma-total-row td {
-          background: #eaf0f8;
-          color: #172b4d;
-          font-weight: 800;
-          border-top: 2px solid #94a3b8;
-        }
-
-        .svma-formula-note {
-          margin: 0;
-          padding: 10px 13px;
-          background: #f8fafc;
-          border-top: 1px solid #e2e8f0;
-          color: #64748b;
-          font-size: 11px;
-          line-height: 1.6;
-        }
-
-        .svma-empty-cell {
-          text-align: center;
-          padding: 22px !important;
-          color: #94a3b8;
-        }
-
-        .svma-section-content {
-          padding: 12px 14px;
-        }
-
-        .svma-sheet-footer {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 13px;
-          padding: 13px 18px;
-          border-top: 1px solid #e2e8f0;
-          background: #f8fafc;
-          color: #64748b;
-          font-size: 10px;
-        }
-
-        .svma-sheet-footer span {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .svma-sheet-footer i {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          display: inline-block;
-        }
-
-        .svma-sheet-footer em {
-          font-style: normal;
-          margin-left: auto;
-        }
-
-        @media (max-width: 700px) {
-          .svma-modal-backdrop {
-            padding: 0;
-            align-items: stretch;
-          }
-
-          .svma-modal-dialog {
-            width: 100%;
-            max-height: 100dvh;
-            border-radius: 0;
-          }
-
-          .svma-modal-toolbar {
-            padding: 12px;
-          }
-
-          .svma-sheet-title {
-            padding: 16px;
-            align-items: flex-start;
-          }
-
-          .svma-sheet-title h2 {
-            font-size: 15px;
-          }
-
-          .svma-sheet-section {
-            margin: 9px;
-          }
-
-          .svma-contract-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .svma-info-box:nth-child(3n) {
-            border-right: 1px solid #e2e8f0;
-          }
-
-          .svma-info-box:nth-child(2n) {
-            border-right: 0;
-          }
-
-          .svma-section-heading {
-            font-size: 10px;
-          }
-        }
-
-        @media (max-width: 420px) {
-          .svma-contract-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .svma-info-box,
-          .svma-info-box:nth-child(3n) {
-            border-right: 0;
-          }
-        }
-      `}</style>
     </>
   );
 }

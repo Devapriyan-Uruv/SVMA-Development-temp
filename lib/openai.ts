@@ -4,18 +4,30 @@ import { recordAiUsage } from '@/lib/aiUsage';
 
 export const OPENAI_MODEL = process.env.URV_MODEL || 'uruv-light';
 
+export const URUV_MODEL = process.env.URV_MODEL || 'uruv-light';
+
+export const URUV_MODEL_EXTRACT =
+  process.env.URV_MODEL_EXTRACT || 'uruv-heavy';
+
+export const aiConfigured = (): boolean =>
+  Boolean(
+    process.env.URV_API_KEY &&
+    (process.env.URV_BASE_URL || 'https://api.uruv.ai/v1')
+  );
+
+export const gatewayMode = aiConfigured;
 /**
  * Responses-API-shaped facade over URUV Inai Chat Completions.
  * Existing call sites can continue using:
- * client.responses.create(...)
+ * client.responses.create({...})
  * response.output_text
  */
 export function getOpenAI(feature = 'general') {
   const apiKey = process.env.URV_API_KEY;
-  const baseURL = process.env.URV_BASE_URL;
+  const baseURL = process.env.URV_BASE_URL || 'https://api.uruv.ai/v1';
 
-  if (!apiKey || !baseURL) {
-    throw new Error('URV_API_KEY / URV_BASE_URL missing');
+  if (!apiKey) {
+    throw new Error('URV_API_KEY is missing');
   }
 
   const client = new OpenAI({
@@ -42,41 +54,50 @@ export function getOpenAI(feature = 'general') {
         content: body.input,
       });
     } else {
-      for (const message of body.input || []) {
+      for (const m of body.input || []) {
         messages.push({
-          role: message.role,
-          content: toChatContent(message.content),
+          role: m.role,
+          content: toChatContent(m.content),
         });
       }
     }
 
-    const format = body.text?.format;
+    const fmt = body.text?.format;
 
-    const response: any = await client.chat.completions.create(
+    const res: any = await client.chat.completions.create(
       {
         model: body.model || OPENAI_MODEL,
         messages,
-        ...(format?.type === 'json_object'
-          ? { response_format: { type: 'json_object' } }
+
+        ...(fmt?.type === 'json_object'
+          ? {
+              response_format: {
+                type: 'json_object',
+              },
+            }
           : {}),
-        ...(format?.type === 'json_schema'
+
+        ...(fmt?.type === 'json_schema'
           ? {
               response_format: {
                 type: 'json_schema',
                 json_schema: {
-                  name: format.name || 'result',
-                  schema: format.schema,
-                  strict: format.strict,
+                  name: fmt.name || 'result',
+                  schema: fmt.schema,
+                  strict: fmt.strict,
                 },
               },
             }
           : {}),
+
         ...(body.max_output_tokens
           ? { max_tokens: body.max_output_tokens }
           : {}),
+
         ...(body.reasoning?.effort
           ? { reasoning_effort: body.reasoning.effort }
           : {}),
+
         metadata: {
           data_classification: 'confidential',
         },
@@ -85,9 +106,9 @@ export function getOpenAI(feature = 'general') {
     );
 
     const usage = {
-      input_tokens: response.usage?.prompt_tokens ?? 0,
-      output_tokens: response.usage?.completion_tokens ?? 0,
-      total_tokens: response.usage?.total_tokens ?? 0,
+      input_tokens: res.usage?.prompt_tokens ?? 0,
+      output_tokens: res.usage?.completion_tokens ?? 0,
+      total_tokens: res.usage?.total_tokens ?? 0,
     };
 
     await recordAiUsage({
@@ -95,15 +116,15 @@ export function getOpenAI(feature = 'general') {
       model: String(body.model || OPENAI_MODEL),
       usage,
       ms: Date.now() - started,
-      costUsd: Number(response.uruv?.cost_usd ?? 0),
-      requestId: response.uruv?.request_id ?? null,
+      costUsd: Number(res.uruv?.cost_usd ?? 0),
+      requestId: res.uruv?.request_id,
     });
 
     return {
-      output_text: response.choices?.[0]?.message?.content ?? '',
-      model: response.model,
+      output_text: res.choices?.[0]?.message?.content ?? '',
+      model: res.model,
       usage,
-      uruv: response.uruv,
+      uruv: res.uruv,
     };
   };
 
@@ -112,30 +133,38 @@ export function getOpenAI(feature = 'general') {
   } as unknown as OpenAI;
 }
 
-/** Convert Responses API content parts into Chat Completions content parts. */
+/**
+ * Responses API content parts -> Chat Completions content parts.
+ */
 function toChatContent(content: any) {
-  if (typeof content === 'string') return content;
+  if (typeof content === 'string') {
+    return content;
+  }
 
-  return (content || []).map((part: any) => {
-    if (part.type === 'input_text') {
+  if (!Array.isArray(content)) {
+    return content;
+  }
+
+  return content.map((p: any) => {
+    if (p.type === 'input_text') {
       return {
         type: 'text',
-        text: part.text,
+        text: p.text,
       };
     }
 
-    if (part.type === 'input_image') {
+    if (p.type === 'input_image') {
       return {
         type: 'image_url',
         image_url: {
-          url: part.image_url,
-          detail: part.detail,
+          url: p.image_url,
+          detail: p.detail,
         },
       };
     }
 
-    if (part.type === 'input_file') {
-      if (!part.file_data) {
+    if (p.type === 'input_file') {
+      if (!p.file_data) {
         throw new Error(
           'Send PDFs inline as file_data (base64); file_id is not supported'
         );
@@ -144,12 +173,12 @@ function toChatContent(content: any) {
       return {
         type: 'file',
         file: {
-          filename: part.filename || 'document.pdf',
-          file_data: part.file_data,
+          filename: p.filename || 'document.pdf',
+          file_data: p.file_data,
         },
       };
     }
 
-    return part;
+    return p;
   });
 }
