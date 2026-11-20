@@ -96,6 +96,27 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       const saved = await db.from('import_contract_advance_fx').upsert(update, { onConflict: 'contract_id,payment_key' });
       if (saved.error) throw saved.error;
     }
+    // Remove stale payment records that are no longer present
+// in the latest settlement suggestions for this contract.
+if (paymentRows.length > 0) {
+  const currentPaymentKeys = new Set(
+    paymentRows.map((row: any) => row.payment_key)
+  );
+
+  const staleRows = (existingResult.data ?? []).filter(
+    (row: any) => !currentPaymentKeys.has(row.payment_key)
+  );
+
+  for (const stale of staleRows) {
+    const { error } = await db
+      .from('import_contract_advance_fx')
+      .delete()
+      .eq('contract_id', id)
+      .eq('payment_key', stale.payment_key);
+
+    if (error) throw error;
+  }
+}
 
     const refreshed = await db.from('import_contract_advance_fx')
       .select('payment_key,payment_date,amount_inr,inr_per_usd,amount_usd,rate_source,rate_fetched_at,voucher_type,voucher_number,ledger_name')

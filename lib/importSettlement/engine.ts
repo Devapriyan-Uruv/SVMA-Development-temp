@@ -503,13 +503,16 @@ export function buildSettlement(inp: EngineInput): Settlement {
             String(ref.drcr || '').toLowerCase() === 'dr' &&
             Number(ref.amount) > 0,
         );
-        const advanceRefAmount = advanceRefs.reduce(
+        // Only an explicit Advance debit reference is authoritative.
+        // Do not fall back to the ledger line debit: Journal vouchers contain
+        // balancing/control ledgers (for example HDFC Duty A/C), whose debit
+        // or credit values are not the advance payment amount.
+        const advanceAmount = advanceRefs.reduce(
           (total, ref) => total + Number(ref.amount || 0),
           0,
         );
-        const advanceAmount = advanceRefAmount || amountOf(l.dr);
 
-        if (advanceAmount > 0 && (advanceRefs.length > 0 || amountOf(l.dr) > 0)) {
+        if (advanceRefs.length > 0 && advanceAmount > 0) {
           push(
             'payment',
             'advPaidInr',
